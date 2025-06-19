@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="9.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TechWorklowOrchestrator.Core\TechWorklowOrchestrator.Core.csproj" />
+    <ProjectReference Include="..\TechWorklowOrchestrator.ServiceDefaults\TechWorklowOrchestrator.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

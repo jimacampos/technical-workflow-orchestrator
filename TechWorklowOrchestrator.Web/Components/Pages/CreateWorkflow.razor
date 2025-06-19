@@ -1,0 +1,164 @@
+﻿@page "/workflows/create"
+@rendermode InteractiveServer
+@inject IWorkflowApiService WorkflowApi
+@inject NavigationManager Navigation
+
+<PageTitle>Create Workflow</PageTitle>
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">
+                        <i class="bi bi-plus-circle"></i>
+                        Create New Workflow
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="@model" OnValidSubmit="@HandleValidSubmit">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label for="configName" class="form-label">Configuration Name *</label>
+                            <InputText id="configName" class="form-control" @bind-Value="model.ConfigurationName"
+                                       placeholder="e.g., legacy-feature-flag" />
+                            <ValidationMessage For="@(() => model.ConfigurationName)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="workflowType" class="form-label">Workflow Type *</label>
+                            <InputSelect id="workflowType" class="form-select" @bind-Value="model.WorkflowType">
+                                <option value="@WorkflowType.ArchiveOnly">Archive Only - Gradual traffic reduction</option>
+                                <option value="@WorkflowType.CodeFirst">Code First - Remove from code then archive</option>
+                                <option value="@WorkflowType.TransformToDefault">Transform to Default - Single action</option>
+                            </InputSelect>
+                            <ValidationMessage For="@(() => model.WorkflowType)" />
+                        </div>
+
+                        @if (model.WorkflowType == WorkflowType.ArchiveOnly)
+                        {
+                            <div class="mb-3">
+                                <label for="trafficPercentage" class="form-label">Current Traffic Percentage</label>
+                                <InputNumber id="trafficPercentage" class="form-control" @bind-Value="model.CurrentTrafficPercentage" />
+                                <div class="form-text">Current percentage of traffic using this configuration</div>
+                                <ValidationMessage For="@(() => model.CurrentTrafficPercentage)" />
+                            </div>
+                        }
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <InputTextArea id="description" class="form-control" @bind-Value="model.Description"
+                                           rows="3" placeholder="Optional description of this workflow..." />
+                            <ValidationMessage For="@(() => model.Description)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Metadata</label>
+                            @foreach (var metadata in metadataItems)
+                            {
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" @bind="metadata.Key" placeholder="Key" />
+                                    <input type="text" class="form-control" @bind="metadata.Value" placeholder="Value" />
+                                    <button type="button" class="btn btn-outline-danger" @onclick="() => RemoveMetadata(metadata)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            }
+                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="AddMetadata">
+                                <i class="bi bi-plus"></i> Add Metadata
+                            </button>
+                        </div>
+
+                        <div class="d-flex justify-content-between">
+                            <button type="button" class="btn btn-secondary" @onclick="Cancel">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+                                @if (isSubmitting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                <i class="bi bi-check-circle"></i> Create Workflow
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">Workflow Type Information</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>Archive Only</strong>
+                            <p class="small">Gradually reduces traffic (100% → 80% → wait → 0%) then archives the configuration.</p>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Code First</strong>
+                            <p class="small">Creates PR to remove configuration from code, waits for review/merge/deployment, then archives.</p>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Transform to Default</strong>
+                            <p class="small">Single action that transforms the configuration to default values immediately.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreateWorkflowRequest model = new();
+    private List<MetadataItem> metadataItems = new() { new MetadataItem() };
+    private bool isSubmitting = false;
+
+    public class MetadataItem
+    {
+        public string Key { get; set; } = "";
+        public string Value { get; set; } = "";
+    }
+
+    private void AddMetadata()
+    {
+        metadataItems.Add(new MetadataItem());
+    }
+
+    private void RemoveMetadata(MetadataItem item)
+    {
+        if (metadataItems.Count > 1)
+            metadataItems.Remove(item);
+    }
+
+    private async Task HandleValidSubmit()
+    {
+        isSubmitting = true;
+        try
+        {
+            // Convert metadata items to dictionary
+            model.Metadata = metadataItems
+                .Where(m => !string.IsNullOrWhiteSpace(m.Key))
+                .ToDictionary(m => m.Key.Trim(), m => m.Value?.Trim() ?? "");
+
+            var workflow = await WorkflowApi.CreateWorkflowAsync(model);
+            Navigation.NavigateTo($"/workflows/{workflow.Id}");
+        }
+        catch (Exception ex)
+        {
+            // In real app, show error message to user
+            Console.WriteLine($"Error creating workflow: {ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/");
+    }
+}

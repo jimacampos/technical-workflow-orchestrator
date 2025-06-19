@@ -1,0 +1,344 @@
+﻿@page "/workflows/{id:guid}"
+@rendermode InteractiveServer
+@inject IWorkflowApiService WorkflowApi
+@inject NavigationManager Navigation
+
+<PageTitle>Workflow Details</PageTitle>
+
+@if (workflow != null)
+{
+    <div class="container-fluid">
+        <div class="row mb-4">
+            <div class="col">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/">Home</a></li>
+                        <li class="breadcrumb-item active">@workflow.ConfigurationName</li>
+                    </ol>
+                </nav>
+
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h1 class="display-6">@workflow.ConfigurationName</h1>
+                        <div class="d-flex gap-2 mb-2">
+                            <span class="badge bg-secondary fs-6">@workflow.WorkflowType</span>
+                            <span class="badge @GetStateBadgeClass(workflow.CurrentState) fs-6">@workflow.CurrentState</span>
+                        </div>
+                        <p class="text-muted">Created @workflow.CreatedAt.ToString("MMMM dd, yyyy 'at' HH:mm")</p>
+                    </div>
+                    <div class="text-end">
+                        @if (workflow.CurrentState == WorkflowState.Created)
+                        {
+                            <button class="btn btn-success me-2" @onclick="StartWorkflow">
+                                <i class="bi bi-play-circle"></i> Start Workflow
+                            </button>
+                        }
+                        @if (CanHandleExternalEvents(workflow))
+                        {
+                            <button class="btn btn-warning me-2" @onclick="() => showEventModal = true">
+                                <i class="bi bi-lightning"></i> Handle Event
+                            </button>
+                        }
+                        <button class="btn btn-outline-secondary" @onclick="RefreshWorkflow">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Progress</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="progress mb-3" style="height: 30px;">
+                            <div class="progress-bar @GetProgressBarClass(workflow.CurrentState)"
+                                 role="progressbar"
+                                 style="width: @workflow.Progress.PercentComplete%"
+                                 aria-valuenow="@workflow.Progress.PercentComplete"
+                                 aria-valuemin="0"
+                                 aria-valuemax="100">
+                                @($"{workflow.Progress.PercentComplete:F0}%")
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <strong>Current Step:</strong> @workflow.Progress.CurrentStep of @workflow.Progress.TotalSteps
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Status:</strong> @workflow.Progress.CurrentStepDescription
+                            </div>
+                        </div>
+
+                        @if (workflow.Progress.RequiresManualAction)
+                        {
+                            <div class="alert alert-warning mt-3">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                <strong>Manual Action Required:</strong> @workflow.Progress.ManualActionDescription
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(workflow.ErrorMessage))
+                        {
+                            <div class="alert alert-danger mt-3">
+                                <i class="bi bi-exclamation-circle"></i>
+                                <strong>Error:</strong> @workflow.ErrorMessage
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="lead">@workflow.Status</p>
+                        @if (workflow.LastUpdated.HasValue)
+                        {
+                            <small class="text-muted">Last updated: @workflow.LastUpdated.Value.ToString("MMMM dd, yyyy 'at' HH:mm")</small>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                @if (workflow.Metadata?.Any() == true)
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h6 class="mb-0">Metadata</h6>
+                        </div>
+                        <div class="card-body">
+                            @foreach (var meta in workflow.Metadata)
+                            {
+                                <div class="mb-2">
+                                    <strong>@meta.Key:</strong> @meta.Value
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Workflow Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <strong>ID:</strong><br>
+                            <small class="font-monospace">@workflow.Id</small>
+                        </div>
+                        <div class="mb-2">
+                            <strong>Type:</strong> @workflow.WorkflowType
+                        </div>
+                        <div class="mb-2">
+                            <strong>Current State:</strong> @workflow.CurrentState
+                        </div>
+                        <div class="mb-2">
+                            <strong>Created:</strong> @workflow.CreatedAt.ToString("MMM dd, yyyy")
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- External Event Modal -->
+    @if (showEventModal)
+    {
+        <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Handle External Event</h5>
+                        <button type="button" class="btn-close" @onclick="() => showEventModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Event Type</label>
+                            <select class="form-select" @bind="selectedEventType">
+                                <option value="">Select event type...</option>
+                                @if (workflow.WorkflowType == WorkflowType.CodeFirst)
+                                {
+                                    <option value="PRApproved">PR Approved</option>
+                                    <option value="DeploymentCompleted">Deployment Completed</option>
+                                }
+                                <option value="WaitPeriodCompleted">Wait Period Completed</option>
+                            </select>
+                        </div>
+                        @if (!string.IsNullOrEmpty(selectedEventType))
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Additional Data (JSON)</label>
+                                <textarea class="form-control" rows="4" @bind="eventDataJson"
+                                          placeholder='{"key": "value"}'></textarea>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => showEventModal = false">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn btn-primary" @onclick="HandleExternalEvent"
+                                disabled="@(string.IsNullOrEmpty(selectedEventType) || isProcessingEvent)">
+                            @if (isProcessingEvent)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Send Event
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+}
+else if (isLoading)
+{
+    <div class="container text-center">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading workflow...</p>
+    </div>
+}
+else
+{
+    <div class="container">
+        <div class="alert alert-danger">
+            <h4>Workflow Not Found</h4>
+            <p>The workflow with ID @Id was not found.</p>
+            <a href="/" class="btn btn-primary">Go Home</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private WorkflowResponse? workflow;
+    private bool isLoading = true;
+    private bool showEventModal = false;
+    private string selectedEventType = "";
+    private string eventDataJson = "{}";
+    private bool isProcessingEvent = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadWorkflow();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (workflow?.Id != Id)
+        {
+            await LoadWorkflow();
+        }
+    }
+
+    private async Task LoadWorkflow()
+    {
+        isLoading = true;
+        try
+        {
+            workflow = await WorkflowApi.GetWorkflowAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading workflow: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshWorkflow()
+    {
+        await LoadWorkflow();
+    }
+
+    private async Task StartWorkflow()
+    {
+        try
+        {
+            workflow = await WorkflowApi.StartWorkflowAsync(Id);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error starting workflow: {ex.Message}");
+        }
+    }
+
+    private async Task HandleExternalEvent()
+    {
+        if (string.IsNullOrEmpty(selectedEventType) || workflow == null)
+            return;
+
+        isProcessingEvent = true;
+        try
+        {
+            var eventData = new Dictionary<string, object>();
+            if (!string.IsNullOrWhiteSpace(eventDataJson) && eventDataJson != "{}")
+            {
+                eventData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(eventDataJson)
+                           ?? new Dictionary<string, object>();
+            }
+
+            var eventRequest = new ExternalEventRequest
+            {
+                EventType = selectedEventType,
+                Data = eventData
+            };
+
+            workflow = await WorkflowApi.HandleExternalEventAsync(Id, eventRequest);
+            showEventModal = false;
+            selectedEventType = "";
+            eventDataJson = "{}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error handling external event: {ex.Message}");
+        }
+        finally
+        {
+            isProcessingEvent = false;
+        }
+    }
+
+    private bool CanHandleExternalEvents(WorkflowResponse workflow)
+    {
+        return workflow.CurrentState switch
+        {
+            WorkflowState.AwaitingReview or WorkflowState.WaitingForDeployment or
+            WorkflowState.WaitingAfter80Percent => true,
+            _ => false
+        };
+    }
+
+    private string GetStateBadgeClass(WorkflowState state) => state switch
+    {
+        WorkflowState.Created => "bg-secondary",
+        WorkflowState.InProgress or WorkflowState.ReducingTo80Percent or WorkflowState.ReducingToZero or
+        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
+        WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
+        WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.Completed => "bg-success",
+        WorkflowState.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetProgressBarClass(WorkflowState state) => state switch
+    {
+        WorkflowState.Completed => "bg-success",
+        WorkflowState.Failed => "bg-danger",
+        WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
+        WorkflowState.WaitingForDeployment => "bg-warning",
+        _ => "bg-primary"
+    };
+}

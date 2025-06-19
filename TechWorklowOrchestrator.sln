@@ -1,0 +1,54 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36203.30
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.AppHost", "TechWorklowOrchestrator.AppHost\TechWorklowOrchestrator.AppHost.csproj", "{E740CF63-85D3-4630-AD8D-801F17496D54}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.ServiceDefaults", "TechWorklowOrchestrator.ServiceDefaults\TechWorklowOrchestrator.ServiceDefaults.csproj", "{79AB551B-FCFC-3EBC-F838-A7E6A410E710}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.ApiService", "TechWorklowOrchestrator.ApiService\TechWorklowOrchestrator.ApiService.csproj", "{1E1A9093-F238-4928-4AFD-DC8F1BF14904}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.Web", "TechWorklowOrchestrator.Web\TechWorklowOrchestrator.Web.csproj", "{79153C7D-0744-3178-535A-1E49F0B61B30}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.Core", "TechWorklowOrchestrator.Core\TechWorklowOrchestrator.Core.csproj", "{D549093E-5CEF-4841-8D3B-F900B68983A3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TechWorklowOrchestrator.Core.Tests", "TechWorklowOrchestrator.Core.Tests\TechWorklowOrchestrator.Core.Tests.csproj", "{AEA3F561-BA65-4AF6-A1F8-248D3CD5E38D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E740CF63-85D3-4630-AD8D-801F17496D54}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E740CF63-85D3-4630-AD8D-801F17496D54}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E740CF63-85D3-4630-AD8D-801F17496D54}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E740CF63-85D3-4630-AD8D-801F17496D54}.Release|Any CPU.Build.0 = Release|Any CPU
+		{79AB551B-FCFC-3EBC-F838-A7E6A410E710}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79AB551B-FCFC-3EBC-F838-A7E6A410E710}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79AB551B-FCFC-3EBC-F838-A7E6A410E710}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79AB551B-FCFC-3EBC-F838-A7E6A410E710}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1E1A9093-F238-4928-4AFD-DC8F1BF14904}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1E1A9093-F238-4928-4AFD-DC8F1BF14904}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1E1A9093-F238-4928-4AFD-DC8F1BF14904}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1E1A9093-F238-4928-4AFD-DC8F1BF14904}.Release|Any CPU.Build.0 = Release|Any CPU
+		{79153C7D-0744-3178-535A-1E49F0B61B30}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{79153C7D-0744-3178-535A-1E49F0B61B30}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{79153C7D-0744-3178-535A-1E49F0B61B30}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{79153C7D-0744-3178-535A-1E49F0B61B30}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D549093E-5CEF-4841-8D3B-F900B68983A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D549093E-5CEF-4841-8D3B-F900B68983A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D549093E-5CEF-4841-8D3B-F900B68983A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D549093E-5CEF-4841-8D3B-F900B68983A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AEA3F561-BA65-4AF6-A1F8-248D3CD5E38D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEA3F561-BA65-4AF6-A1F8-248D3CD5E38D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEA3F561-BA65-4AF6-A1F8-248D3CD5E38D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEA3F561-BA65-4AF6-A1F8-248D3CD5E38D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2D57C219-1C40-46B6-A8C4-7408D8F97302}
+	EndGlobalSection
+EndGlobal

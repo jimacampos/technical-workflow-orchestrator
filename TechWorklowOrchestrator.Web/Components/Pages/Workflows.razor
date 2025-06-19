@@ -1,0 +1,279 @@
+﻿@page "/workflows"
+@rendermode InteractiveServer
+@inject IWorkflowApiService WorkflowApi
+@inject NavigationManager Navigation
+
+<PageTitle>All Workflows</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="display-6">All Workflows</h1>
+            <p class="lead">Manage and monitor all your configuration cleanup workflows</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="NavigateToCreate">
+                <i class="bi bi-plus-circle"></i> New Workflow
+            </button>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" placeholder="Search workflows..." @bind="searchTerm" @oninput="FilterWorkflows" />
+            </div>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="selectedTypeFilter" @bind:after="FilterWorkflows">
+                <option value="">All Types</option>
+                <option value="ArchiveOnly">Archive Only</option>
+                <option value="CodeFirst">Code First</option>
+                <option value="TransformToDefault">Transform to Default</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="selectedStateFilter" @bind:after="FilterWorkflows">
+                <option value="">All States</option>
+                <option value="Created">Created</option>
+                <option value="InProgress">In Progress</option>
+                <option value="Waiting">Waiting</option>
+                <option value="Completed">Completed</option>
+                <option value="Failed">Failed</option>
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-outline-secondary w-100" @onclick="RefreshData">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (filteredWorkflows?.Any() == true)
+    {
+        <div class="card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Configuration</th>
+                                <th>Type</th>
+                                <th>State</th>
+                                <th>Progress</th>
+                                <th>Created</th>
+                                <th>Last Updated</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var workflow in filteredWorkflows)
+                            {
+                                <tr>
+                                    <td>
+                                        <div>
+                                            <strong>@workflow.ConfigurationName</strong>
+                                            @if (workflow.Metadata.ContainsKey("description"))
+                                            {
+                                                <br><small class="text-muted">@workflow.Metadata["description"]</small>
+                                            }
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary">@workflow.WorkflowType</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetStateBadgeClass(workflow.CurrentState)">
+                                            @workflow.CurrentState
+                                        </span>
+                                        @if (workflow.Progress.RequiresManualAction)
+                                        {
+                                            <br><small class="text-warning">
+                                                <i class="bi bi-exclamation-triangle"></i> Action needed
+                                            </small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="progress mb-1" style="height: 10px;">
+                                            <div class="progress-bar @GetProgressBarClass(workflow.CurrentState)" 
+                                                 role="progressbar" 
+                                                 style="width: @workflow.Progress.PercentComplete%"
+                                                 aria-valuenow="@workflow.Progress.PercentComplete" 
+                                                 aria-valuemin="0" 
+                                                 aria-valuemax="100">
+                                            </div>
+                                        </div>
+                                        <small class="text-muted">@($"{workflow.Progress.PercentComplete:F0}%") - @workflow.Progress.CurrentStepDescription</small>
+                                    </td>
+                                    <td>
+                                        <small>@workflow.CreatedAt.ToString("MMM dd, yyyy")<br>@workflow.CreatedAt.ToString("HH:mm")</small>
+                                    </td>
+                                    <td>
+                                        @if (workflow.LastUpdated.HasValue)
+                                        {
+                                            <small>@workflow.LastUpdated.Value.ToString("MMM dd, yyyy")<br>@workflow.LastUpdated.Value.ToString("HH:mm")</small>
+                                        }
+                                        else
+                                        {
+                                            <small class="text-muted">Never</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-outline-primary btn-sm" 
+                                                    @onclick="() => NavigateToDetails(workflow.Id)"
+                                                    title="View Details">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            @if (workflow.CurrentState == WorkflowState.Created)
+                                            {
+                                                <button class="btn btn-outline-success btn-sm" 
+                                                        @onclick="() => StartWorkflow(workflow.Id)"
+                                                        title="Start Workflow">
+                                                    <i class="bi bi-play-circle"></i>
+                                                </button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                <small class="text-muted">
+                    Showing @filteredWorkflows.Count of @(allWorkflows?.Count ?? 0) workflows
+                </small>
+            </div>
+        </div>
+    }
+    else if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading workflows...</p>
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-inbox fs-1 text-muted"></i>
+            <h5 class="text-muted mt-2">No workflows found</h5>
+            @if (string.IsNullOrEmpty(searchTerm) && string.IsNullOrEmpty(selectedTypeFilter) && string.IsNullOrEmpty(selectedStateFilter))
+            {
+                <p class="text-muted">Create your first workflow to get started</p>
+                <button class="btn btn-primary" @onclick="NavigateToCreate">
+                    <i class="bi bi-plus-circle"></i> Create Workflow
+                </button>
+            }
+            else
+            {
+                <p class="text-muted">Try adjusting your search filters</p>
+                <button class="btn btn-outline-secondary" @onclick="ClearFilters">
+                    <i class="bi bi-x-circle"></i> Clear Filters
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<WorkflowResponse>? allWorkflows;
+    private List<WorkflowResponse>? filteredWorkflows;
+    private bool isLoading = true;
+    private string searchTerm = "";
+    private string selectedTypeFilter = "";
+    private string selectedStateFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        try
+        {
+            allWorkflows = await WorkflowApi.GetAllWorkflowsAsync();
+            FilterWorkflows();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading workflows: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void FilterWorkflows()
+    {
+        if (allWorkflows == null)
+        {
+            filteredWorkflows = new List<WorkflowResponse>();
+            return;
+        }
+
+        filteredWorkflows = allWorkflows.Where(w =>
+            (string.IsNullOrEmpty(searchTerm) || 
+             w.ConfigurationName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (w.Metadata.ContainsKey("description") && w.Metadata["description"].Contains(searchTerm, StringComparison.OrdinalIgnoreCase))) &&
+            (string.IsNullOrEmpty(selectedTypeFilter) || w.WorkflowType.ToString() == selectedTypeFilter) &&
+            (string.IsNullOrEmpty(selectedStateFilter) || w.CurrentState.ToString() == selectedStateFilter)
+        ).ToList();
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = "";
+        selectedTypeFilter = "";
+        selectedStateFilter = "";
+        FilterWorkflows();
+    }
+
+    private async Task StartWorkflow(Guid id)
+    {
+        try
+        {
+            await WorkflowApi.StartWorkflowAsync(id);
+            await RefreshData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error starting workflow: {ex.Message}");
+        }
+    }
+
+    private void NavigateToCreate() => Navigation.NavigateTo("/workflows/create");
+    private void NavigateToDetails(Guid id) => Navigation.NavigateTo($"/workflows/{id}");
+
+    private string GetStateBadgeClass(WorkflowState state) => state switch
+    {
+        WorkflowState.Created => "bg-secondary",
+        WorkflowState.InProgress or WorkflowState.ReducingTo80Percent or WorkflowState.ReducingToZero or 
+        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
+        WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or 
+        WorkflowState.WaitingForDeployment => "bg-warning text-dark",
+        WorkflowState.Completed => "bg-success",
+        WorkflowState.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetProgressBarClass(WorkflowState state) => state switch
+    {
+        WorkflowState.Completed => "bg-success",
+        WorkflowState.Failed => "bg-danger",
+        WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or 
+        WorkflowState.WaitingForDeployment => "bg-warning",
+        _ => "bg-primary"
+    };
+}
