@@ -15,6 +15,7 @@
         AwaitingReview,
         Merging,
         WaitingForDeployment,
-        Transforming
+        Transforming,
+        AwaitingUserAction
     }
 }

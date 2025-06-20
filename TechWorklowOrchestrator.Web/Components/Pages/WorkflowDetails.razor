@@ -47,17 +47,32 @@
                         @if (workflow.CurrentState == WorkflowState.Created)
                         {
                             <button class="btn btn-success me-2" @onclick="StartWorkflow" disabled="@isStartingWorkflow">
-                @if (isStartingWorkflow)
-                {
-                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                    <span>Starting...</span>
-                }
-                else
-                {
-                    <i class="bi bi-play-circle"></i>
-                    <span>Start Workflow</span>
-                }
-            </button>
+                                @if (isStartingWorkflow)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Starting...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-play-circle"></i>
+                                    <span>Start Workflow</span>
+                                }
+                            </button>
+                        }
+                        @if (workflow.CurrentState == WorkflowState.AwaitingUserAction)
+                        {
+                            <button class="btn btn-primary me-2" @onclick="ProceedWorkflow" disabled="@isProceedingWorkflow">
+                                @if (isProceedingWorkflow)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    <span>Processing...</span>
+                                }
+                                else
+                                {
+                                    <i class="bi bi-arrow-right-circle"></i>
+                                    <span>@GetProceedButtonText()</span>
+                                }
+                            </button>
                         }
                         @if (CanHandleExternalEvents(workflow))
                         {
@@ -138,6 +153,19 @@
                             <div class="alert alert-warning mt-3">
                                 <i class="bi bi-exclamation-triangle"></i>
                                 <strong>Manual Action Required:</strong> @workflow.Progress.ManualActionDescription
+                            </div>
+                        }
+
+                        @if (workflow.CurrentState == WorkflowState.AwaitingUserAction)
+                        {
+                            <div class="alert alert-info mt-3">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-hand-index me-2"></i>
+                                    <div>
+                                        <strong>Manual Action Required:</strong>
+                                        Click "@GetProceedButtonText()" to continue with the next step.
+                                    </div>
+                                </div>
                             </div>
                         }
 
@@ -466,6 +494,7 @@ else
     private Timer? autoRefreshTimer;
     private bool isAutoRefreshing = false;
     private DateTime lastRefresh = DateTime.MinValue;
+    private bool isProceedingWorkflow = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -519,9 +548,12 @@ else
     {
         if (workflow == null) return false;
 
-        // Auto-refresh for archive workflows that are in progress or waiting
+        // Auto-refresh for archive workflows that are in progress, waiting, or awaiting user action
         if (workflow.WorkflowType == WorkflowType.ArchiveOnly &&
-            (workflow.CurrentState == WorkflowState.InProgress || workflow.CurrentState == WorkflowState.Waiting || workflow.CurrentState == WorkflowState.Created))
+            (workflow.CurrentState == WorkflowState.InProgress ||
+             workflow.CurrentState == WorkflowState.Waiting ||
+             workflow.CurrentState == WorkflowState.AwaitingUserAction ||
+             workflow.CurrentState == WorkflowState.Created))
         {
             return true;
         }
@@ -792,6 +824,59 @@ else
         {
             return $"{(int)duration.TotalMinutes}m";
         }
+    }
+
+    private async Task ProceedWorkflow()
+    {
+        if (workflow == null) return;
+
+        isProceedingWorkflow = true;
+        try
+        {
+            // Call the API to proceed with the workflow
+            var response = await WorkflowApi.ProceedWorkflowAsync(workflow.ProjectId!.Value, workflow.Id);
+
+            if (response != null)
+            {
+                workflow = response;
+
+                // Refresh the workflow data to get updated stage progress
+                await LoadWorkflow(silent: true);
+
+                // Continue auto-refresh if still active
+                StopAutoRefresh();
+                StartAutoRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error proceeding workflow: {ex.Message}");
+            // You could add error display here
+        }
+        finally
+        {
+            isProceedingWorkflow = false;
+        }
+    }
+
+    private string GetProceedButtonText()
+    {
+        if (workflow?.CurrentState != WorkflowState.AwaitingUserAction)
+            return "Proceed";
+
+        // Parse the status to extract the action description
+        // The status should contain something like "⏳ Start Rolldown (100% → 80%)"
+        var status = workflow.Status;
+        if (status.Contains("Start Rolldown"))
+            return "Start Rolldown";
+        else if (status.Contains("Continue Rolldown"))
+            return "Continue Rolldown";
+        else if (status.Contains("Stop Rollout"))
+            return "Stop Rollout";
+        else if (status.Contains("Archive"))
+            return "Archive";
+        else
+            return "Proceed";
     }
 
     public class StageProgressModel

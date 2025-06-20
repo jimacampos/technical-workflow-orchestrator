@@ -110,5 +110,35 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
             return NoContent();
         }
+
+        /// <summary>
+        /// Proceed with manual action for a workflow
+        /// </summary>
+        [HttpPost("{id:guid}/proceed")]
+        public async Task<ActionResult<WorkflowResponse>> ProceedWorkflow(Guid id)
+        {
+            try
+            {
+                var workflow = await _workflowService.GetWorkflowAsync(id);
+                if (workflow == null)
+                    return NotFound($"Workflow {id} not found");
+
+                // This would need to be implemented in the workflow service
+                var updatedWorkflow = await _workflowService.ProceedWorkflowAsync(id);
+                return Ok(updatedWorkflow);
+            }
+            catch (ArgumentException ex)
+            {
+                return NotFound(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error proceeding workflow: {ex.Message}");
+            }
+        }
     }
 }

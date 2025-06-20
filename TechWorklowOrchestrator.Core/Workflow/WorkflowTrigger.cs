@@ -13,6 +13,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
         Complete,
         Fail,
         Timeout,
+        UserProceed,
 
         // Archive-Only triggers
         ReductionCompleted,

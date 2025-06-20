@@ -14,6 +14,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
         Waiting,
         Completed,
         Failed,
+        AwaitingUserAction,
 
         // Archive-Only specific
         ReducingTo80Percent,

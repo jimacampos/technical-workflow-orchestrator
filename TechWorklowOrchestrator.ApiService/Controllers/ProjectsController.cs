@@ -83,7 +83,8 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                                 stageName: s.Name,
                                 currentPercentage: s.CurrentPercentage,
                                 targetPercentage: s.TargetPercentage,
-                                waitDuration: (TimeSpan?)TimeSpan.FromHours(s.WaitHours)
+                                // waitDuration: (TimeSpan?)TimeSpan.FromHours(s.WaitHours)
+                                waitDuration: (TimeSpan?)TimeSpan.FromMinutes(1) // Default to 1 minute for simplicity, can be adjusted
                             )).ToList();
 
                             // Initialize the archive configuration
@@ -138,7 +139,7 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 Id = workflow.Id,
                 ConfigurationName = workflow.ConfigurationName,
                 WorkflowType = workflow.WorkflowType,
-                CurrentState = workflow.IsCompleted ? "Completed" : "Created",
+                CurrentState = DeriveCurrentState(workflow),
                 Status = workflow.IsCompleted ? "Completed" : "Not Started",
                 CreatedAt = workflow.CreatedAt,
                 LastUpdated = (DateTime?)null,
@@ -211,7 +212,7 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 Id = workflow.Id,
                 ConfigurationName = workflow.ConfigurationName,
                 WorkflowType = workflow.WorkflowType,
-                CurrentState = workflow.IsCompleted ? "Completed" : "Created",
+                CurrentState = DeriveCurrentState(workflow),
                 Status = workflow.GetCurrentStatusDescription(),
                 CreatedAt = workflow.CreatedAt,
                 LastUpdated = (DateTime?)null,
@@ -262,25 +263,47 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
         {
             try
             {
+                Console.WriteLine($"=== Starting workflow {workflowId} ===");
+
                 var workflow = _projectService.GetWorkflowById(workflowId);
                 if (workflow == null)
+                {
+                    Console.WriteLine($"Workflow {workflowId} not found");
                     return NotFound($"Workflow with ID {workflowId} not found");
+                }
+
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
+                Console.WriteLine($"Current IsCompleted: {workflow.IsCompleted}");
+                Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
+
+                if (workflow.ArchiveConfiguration != null)
+                {
+                    Console.WriteLine($"WorkflowStartedAt before start: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
+                    Console.WriteLine($"Current stage: {workflow.ArchiveConfiguration.CurrentStage?.Name}");
+                    Console.WriteLine($"Current stage status: {workflow.ArchiveConfiguration.CurrentStage?.Status}");
+                }
 
                 // Create and start the workflow engine
                 if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
                 {
                     var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
+                    Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
 
                     // Check if workflow can be started
                     if (await archiveWorkflow.CanStartAsync())
                     {
+                        Console.WriteLine("CanStartAsync returned true, calling StartAsync...");
+
                         // Start the workflow
                         await archiveWorkflow.StartAsync();
 
-                        Console.WriteLine($"Started archive workflow for {workflow.ConfigurationName}");
+                        Console.WriteLine($"StartAsync completed, new state: {archiveWorkflow.CurrentState}");
+                        Console.WriteLine($"WorkflowStartedAt after start: {workflow.ArchiveConfiguration?.WorkflowStartedAt}");
+                        Console.WriteLine($"Current stage status after start: {workflow.ArchiveConfiguration?.CurrentStage?.Status}");
                     }
                     else
                     {
+                        Console.WriteLine("CanStartAsync returned false");
                         return BadRequest("Workflow cannot be started - check configuration and traffic percentages");
                     }
                 }
@@ -289,13 +312,80 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return BadRequest($"Workflow type {workflow.WorkflowType} is not supported yet");
                 }
 
+                Console.WriteLine("=== Workflow start completed, returning response ===");
+
                 // Return the updated workflow state
                 return GetWorkflowById(workflowId);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error starting workflow: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 return StatusCode(500, $"Error starting workflow: {ex.Message}");
+            }
+        }
+
+        [HttpPost("{projectId}/workflows/{workflowId}/proceed")]
+        public async Task<ActionResult<object>> ProceedWorkflow(Guid projectId, Guid workflowId)
+        {
+            try
+            {
+                Console.WriteLine($"=== Proceeding workflow {workflowId} in project {projectId} ===");
+
+                var workflow = _projectService.GetWorkflowById(workflowId);
+                if (workflow == null || workflow.ProjectId != projectId)
+                {
+                    Console.WriteLine($"Workflow {workflowId} not found in project {projectId}");
+                    return NotFound($"Workflow with ID {workflowId} not found in project {projectId}");
+                }
+
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
+                Console.WriteLine($"Current derived state: {DeriveCurrentState(workflow)}");
+
+                // Handle manual progression based on workflow type
+                if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
+                {
+                    var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
+                    Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
+
+                    // Check if workflow can proceed
+                    if (archiveWorkflow.CanProceed())
+                    {
+                        Console.WriteLine($"CanProceed returned true, calling ProceedAsync...");
+                        Console.WriteLine($"Action description: {archiveWorkflow.GetCurrentActionDescription()}");
+
+                        // Proceed with the workflow
+                        await archiveWorkflow.ProceedAsync();
+
+                        Console.WriteLine($"ProceedAsync completed, new state: {archiveWorkflow.CurrentState}");
+                        Console.WriteLine($"New derived state: {DeriveCurrentState(workflow)}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"CanProceed returned false - current state: {archiveWorkflow.CurrentState}");
+                        return BadRequest($"Workflow cannot proceed - current state: {archiveWorkflow.CurrentState}");
+                    }
+                }
+                else
+                {
+                    return BadRequest($"Manual progression not supported for workflow type {workflow.WorkflowType}");
+                }
+
+                Console.WriteLine("=== Workflow proceed completed, returning response ===");
+
+                // Return the updated workflow state
+                return GetWorkflowById(workflowId);
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.WriteLine($"Invalid operation: {ex.Message}");
+                return BadRequest(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error proceeding workflow: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                return StatusCode(500, $"Error proceeding workflow: {ex.Message}");
             }
         }
 
@@ -305,5 +395,91 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             var project = _projectService.GetProjectById(projectId.Value);
             return project?.Name;
         }
+
+        private string DeriveCurrentState(ConfigCleanupContext workflow)
+        {
+            Console.WriteLine($"=== DeriveCurrentState Debug ===");
+            Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
+            Console.WriteLine($"ErrorMessage: {workflow.ErrorMessage}");
+            Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
+
+            if (workflow.IsCompleted)
+            {
+                Console.WriteLine("Returning: Completed");
+                return "Completed";
+            }
+
+            if (!string.IsNullOrEmpty(workflow.ErrorMessage))
+            {
+                Console.WriteLine("Returning: Failed");
+                return "Failed";
+            }
+
+            if (workflow.ArchiveConfiguration == null)
+            {
+                Console.WriteLine("Returning: Created (no config)");
+                return "Created";
+            }
+
+            Console.WriteLine($"WorkflowStartedAt: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
+            Console.WriteLine($"WorkflowStartedAt.HasValue: {workflow.ArchiveConfiguration.WorkflowStartedAt.HasValue}");
+
+            // Check if workflow has been started
+            if (!workflow.ArchiveConfiguration.WorkflowStartedAt.HasValue)
+            {
+                Console.WriteLine("Returning: Created (not started)");
+                return "Created";
+            }
+
+            var currentStage = workflow.ArchiveConfiguration.CurrentStage;
+            Console.WriteLine($"CurrentStage is null: {currentStage == null}");
+
+            if (currentStage == null)
+            {
+                Console.WriteLine("Returning: Completed (no current stage)");
+                return "Completed"; // No more stages
+            }
+
+            Console.WriteLine($"CurrentStage.Name: {currentStage.Name}");
+            Console.WriteLine($"CurrentStage.Status: {currentStage.Status}");
+
+            // Determine state based on current stage status
+            var result = currentStage.Status switch
+            {
+                WorkflowStageStatus.Pending => "AwaitingUserAction", // Ready to start this stage
+                WorkflowStageStatus.ReducingTraffic => "InProgress", // Currently reducing traffic
+                WorkflowStageStatus.Waiting => DeriveWaitingState(currentStage), // Check if still waiting or ready for next action
+                WorkflowStageStatus.Completed => "AwaitingUserAction", // Stage done, ready for next action
+                WorkflowStageStatus.Failed => "Failed",
+                _ => "Created"
+            };
+
+            Console.WriteLine($"Final result: {result}");
+            Console.WriteLine($"=== End DeriveCurrentState Debug ===");
+
+            return result;
+        }
+
+        // Helper method to determine if waiting or ready for user action
+        private string DeriveWaitingState(WorkflowStage stage)
+        {
+            if (!stage.WaitStartTime.HasValue)
+                return "Waiting";
+
+            var waitEndTime = stage.WaitStartTime.Value + stage.WaitDuration;
+            var now = DateTime.UtcNow;
+
+            if (now >= waitEndTime)
+            {
+                // Wait period is over, ready for user action
+                return "AwaitingUserAction";
+            }
+            else
+            {
+                // Still waiting
+                return "Waiting";
+            }
+        }
+
     }
 }

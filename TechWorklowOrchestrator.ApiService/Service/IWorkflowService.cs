@@ -11,5 +11,6 @@ namespace TechWorklowOrchestrator.ApiService.Service
         Task<WorkflowResponse> HandleExternalEventAsync(Guid id, ExternalEventRequest eventRequest);
         Task<WorkflowSummary> GetSummaryAsync();
         Task<bool> DeleteWorkflowAsync(Guid id);
+        Task<WorkflowResponse> ProceedWorkflowAsync(Guid id);
     }
 }

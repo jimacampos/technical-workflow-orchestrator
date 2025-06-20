@@ -192,6 +192,36 @@ namespace TechWorklowOrchestrator.ApiService.Service
             return true;
         }
 
+        public async Task<WorkflowResponse> ProceedWorkflowAsync(Guid id)
+        {
+            // This implementation depends on your existing workflow service structure
+            // You'll need to adapt this based on how your WorkflowService is implemented
+
+            throw new NotSupportedException("Manual progression is not supported in this service. Please use the appropriate workflow type implementation.");
+            //// Example structure (you'll need to adapt to your actual implementation):
+            //var workflow = await GetWorkflowAsync(id); // Your method to get workflow context
+            //if (workflow == null)
+            //    throw new ArgumentException($"Workflow {id} not found");
+
+            //if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
+            //{
+            //    var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
+
+            //    if (!archiveWorkflow.CanProceed())
+            //        throw new InvalidOperationException($"Workflow cannot proceed - current state: {archiveWorkflow.CurrentState}");
+
+            //    await archiveWorkflow.ProceedAsync();
+
+            //    // Save workflow state and return updated response
+            //    await SaveWorkflowAsync(workflow); // Your method to persist changes
+            //    return await GetWorkflowAsync(id); // Your method to return WorkflowResponse
+            //}
+            //else
+            //{
+            //    throw new InvalidOperationException($"Manual progression not supported for workflow type {workflow.WorkflowType}");
+            //}
+        }
+
         // Helper methods
         private ConfigCleanupWorkflowBase GetOrCreateWorkflow(WorkflowInstance instance)
         {

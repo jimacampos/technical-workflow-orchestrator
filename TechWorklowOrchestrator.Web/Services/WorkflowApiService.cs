@@ -215,5 +215,28 @@ namespace TechWorklowOrchestrator.Web.Services
             var response = await _httpClient.DeleteAsync($"api/workflows/{id}");
             return response.IsSuccessStatusCode;
         }
+
+        public async Task<WorkflowResponse?> ProceedWorkflowAsync(Guid projectId, Guid workflowId)
+        {
+            try
+            {
+                var response = await _httpClient.PostAsync($"api/projects/{projectId}/workflows/{workflowId}/proceed", null);
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    return JsonSerializer.Deserialize<WorkflowResponse>(json, _jsonOptions);
+                }
+                else
+                {
+                    Console.WriteLine($"Proceed workflow failed with status: {response.StatusCode}");
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error proceeding workflow: {ex.Message}");
+                throw;
+            }
+        }
     }
 }
