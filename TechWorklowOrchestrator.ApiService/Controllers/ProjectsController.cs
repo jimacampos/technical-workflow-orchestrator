@@ -148,12 +148,12 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 ProjectName = GetProjectName(workflow.ProjectId),
                 Progress = new
                 {
-                    PercentComplete = workflow.IsCompleted ? 100 : 0,
-                    CurrentStep = 1,
-                    TotalSteps = 1,
-                    CurrentStepDescription = workflow.IsCompleted ? "Completed" : "Not Started",
-                    RequiresManualAction = false,
-                    ManualActionDescription = ""
+                    PercentComplete = workflow.GetOverallProgress(), // Use actual progress calculation
+                    CurrentStep = workflow.ArchiveConfiguration?.CurrentStageIndex + 1 ?? 1,
+                    TotalSteps = workflow.ArchiveConfiguration?.Stages.Count ?? 1,
+                    CurrentStepDescription = workflow.GetCurrentStatusDescription(),
+                    RequiresManualAction = DeriveCurrentState(workflow) == "AwaitingUserAction", // Check if awaiting user action
+                    ManualActionDescription = DeriveCurrentState(workflow) == "AwaitingUserAction" ? GetManualActionDescription(workflow) : ""
                 },
                 Metadata = new Dictionary<string, string>()
             }).ToList();
@@ -243,15 +243,18 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             var summary = new
             {
                 TotalWorkflows = allWorkflows.Count,
-                ActiveWorkflows = allWorkflows.Count(w => !w.IsCompleted),
+                ActiveWorkflows = allWorkflows.Count(w => {
+                    var state = DeriveCurrentState(w);
+                    return state == "InProgress" || state == "Waiting" || state == "AwaitingUserAction";
+                }),
                 CompletedWorkflows = allWorkflows.Count(w => w.IsCompleted),
                 FailedWorkflows = allWorkflows.Count(w => !string.IsNullOrEmpty(w.ErrorMessage)),
-                AwaitingManualAction = 0, // For now, since we don't have this logic in ConfigCleanupContext
+                AwaitingManualAction = allWorkflows.Count(w => DeriveCurrentState(w) == "AwaitingUserAction"), // Fixed calculation
                 ByType = allWorkflows
                     .GroupBy(w => w.WorkflowType)
                     .ToDictionary(g => g.Key, g => g.Count()),
                 ByState = allWorkflows
-                    .GroupBy(w => w.IsCompleted ? "Completed" : "Created") // Simple mapping for now
+                    .GroupBy(w => DeriveCurrentState(w)) // Use DeriveCurrentState instead of simple mapping
                     .ToDictionary(g => g.Key, g => g.Count())
             };
 
@@ -479,6 +482,24 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 // Still waiting
                 return "Waiting";
             }
+        }
+
+        private string GetManualActionDescription(ConfigCleanupContext workflow)
+        {
+            if (workflow.ArchiveConfiguration == null) return "";
+
+            var currentStage = workflow.ArchiveConfiguration.CurrentStage;
+            if (currentStage == null) return "Ready to Archive";
+
+            // Determine what action is needed based on stage status
+            return currentStage.Status switch
+            {
+                WorkflowStageStatus.Pending when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
+                    $"Click to start rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
+                WorkflowStageStatus.Waiting when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
+                    $"Click to continue rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
+                _ => "Click to proceed to next step"
+            };
         }
 
     }

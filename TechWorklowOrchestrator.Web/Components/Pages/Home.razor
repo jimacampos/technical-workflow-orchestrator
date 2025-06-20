@@ -131,6 +131,13 @@
                                                 <span class="badge @GetStateBadgeClass(workflow.CurrentState)">
                                                     @workflow.CurrentState
                                                 </span>
+                                                <!-- ADD THE MANUAL ACTION INDICATOR HERE -->
+                                                @if (workflow.CurrentState == WorkflowState.AwaitingUserAction)
+                                                {
+                                                    <br><small class="text-info">
+                                                        <i class="bi bi-hand-index"></i> Action needed
+                                                    </small>
+                                                }
                                             </td>
                                             <td>
                                                 <div class="progress" style="height: 20px;">
@@ -239,6 +246,7 @@
         WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
         WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.AwaitingUserAction => "bg-info text-dark", // NEW: Blue for manual action needed
         WorkflowState.Completed => "bg-success",
         WorkflowState.Failed => "bg-danger",
         _ => "bg-secondary"
@@ -250,6 +258,7 @@
         WorkflowState.Failed => "bg-danger",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
         WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.AwaitingUserAction => "bg-info", // NEW: Blue for manual action needed
         _ => "bg-primary"
     };
 }

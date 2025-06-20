@@ -37,6 +37,7 @@
             <select class="form-select" @bind="selectedStateFilter" @bind:after="FilterWorkflows">
                 <option value="">All States</option>
                 <option value="Created">Created</option>
+                <option value="AwaitingUserAction">Awaiting Action</option>
                 <option value="InProgress">In Progress</option>
                 <option value="Waiting">Waiting</option>
                 <option value="Completed">Completed</option>
@@ -91,6 +92,12 @@
                                         {
                                             <br><small class="text-warning">
                                                 <i class="bi bi-exclamation-triangle"></i> Action needed
+                                            </small>
+                                        }
+                                        @if (workflow.CurrentState == WorkflowState.AwaitingUserAction)
+                                        {
+                                            <br><small class="text-info">
+                                                <i class="bi bi-hand-index"></i> Action needed
                                             </small>
                                         }
                                     </td>
@@ -263,6 +270,7 @@
         WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or 
         WorkflowState.WaitingForDeployment => "bg-warning text-dark",
+        WorkflowState.AwaitingUserAction => "bg-info text-dark", // NEW: Blue for manual action needed
         WorkflowState.Completed => "bg-success",
         WorkflowState.Failed => "bg-danger",
         _ => "bg-secondary"
@@ -274,6 +282,7 @@
         WorkflowState.Failed => "bg-danger",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or 
         WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.AwaitingUserAction => "bg-info", // NEW: Blue for manual action needed
         _ => "bg-primary"
     };
 }

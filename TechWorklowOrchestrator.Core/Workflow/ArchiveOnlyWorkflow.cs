@@ -210,12 +210,8 @@ namespace TechWorklowOrchestrator.Core.Workflow
 
             Console.WriteLine($"{stage.Name}: Final traffic reduction to {stage.TargetAllocationPercentage}% completed");
 
-            // Mark stage as completed
-            stage.Status = WorkflowStageStatus.Completed;
-            stage.CompletedAt = DateTime.UtcNow;
-
-            // Move to next stage
-            await MoveToNextStageAsync();
+            // Instead of immediately completing, trigger wait period
+            await _stateMachine.FireAsync(WorkflowTrigger.ReductionCompleted);
         }
 
         private async Task ReduceTrafficAsync(WorkflowStage stage, int fromPercentage, int toPercentage)
