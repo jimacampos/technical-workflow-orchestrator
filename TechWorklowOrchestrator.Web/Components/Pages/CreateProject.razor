@@ -1,0 +1,174 @@
+﻿@page "/projects/create"
+@rendermode InteractiveServer
+@inject IProjectApiService ProjectApi
+@inject NavigationManager Navigation
+
+<PageTitle>Create Project</PageTitle>
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h4 class="mb-0">
+                        <i class="bi bi-plus-circle"></i>
+                        Create New Project
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <EditForm Model="@model" OnValidSubmit="@HandleValidSubmit">
+                        <DataAnnotationsValidator />
+
+                        <div class="mb-3">
+                            <label for="projectName" class="form-label">Project Name *</label>
+                            <InputText id="projectName" class="form-control" @bind-Value="model.Name"
+                                       placeholder="e.g., Q1 2025 Feature Flag Cleanup" />
+                            <ValidationMessage For="@(() => model.Name)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="serviceName" class="form-label">Service *</label>
+                            <InputSelect id="serviceName" class="form-select" @bind-Value="model.ServiceName">
+                                <option value="">Select a service...</option>
+                                @foreach (var service in Enum.GetValues<ServiceName>())
+                                {
+                                    <option value="@service">@service</option>
+                                }
+                            </InputSelect>
+                            <div class="form-text">Which service does this project belong to?</div>
+                            <ValidationMessage For="@(() => model.ServiceName)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description</label>
+                            <InputTextArea id="description" class="form-control" @bind-Value="model.Description"
+                                           rows="4" placeholder="Describe the purpose and scope of this project..." />
+                            <div class="form-text">Optional description to help team members understand the project goals</div>
+                            <ValidationMessage For="@(() => model.Description)" />
+                        </div>
+
+                        <div class="d-flex justify-content-between">
+                            <button type="button" class="btn btn-secondary" @onclick="Cancel">
+                                <i class="bi bi-x-circle"></i> Cancel
+                            </button>
+                            <button type="submit" class="btn btn-primary" disabled="@isSubmitting">
+                                @if (isSubmitting)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                <i class="bi bi-check-circle"></i> Create Project
+                            </button>
+                        </div>
+                    </EditForm>
+                </div>
+            </div>
+
+            <!-- Service Information Card -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">Service Information</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <strong>UserDiscovery</strong>
+                                <p class="small text-muted">User discovery and recommendation services</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>MEC</strong>
+                                <p class="small text-muted">Marketing engagement campaigns</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>IBPP</strong>
+                                <p class="small text-muted">Insurance broker platform</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>EERS</strong>
+                                <p class="small text-muted">Enterprise engagement and retention</p>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <strong>PermissionService</strong>
+                                <p class="small text-muted">Authorization and permissions management</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>UserSettings</strong>
+                                <p class="small text-muted">User preferences and configuration</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>RuntimeAPI</strong>
+                                <p class="small text-muted">Core runtime and API services</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong>BVD</strong>
+                                <p class="small text-muted">Business value delivery platform</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Project Templates (Future Enhancement) -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">Common Project Types</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 mb-2">
+                                <strong>Feature Flag Cleanup</strong>
+                                <p class="small text-muted">Remove deprecated feature flags and configurations</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 mb-2">
+                                <strong>API Deprecation</strong>
+                                <p class="small text-muted">Sunset old API endpoints and migrate clients</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="border rounded p-3 mb-2">
+                                <strong>Configuration Migration</strong>
+                                <p class="small text-muted">Move configurations to new systems or formats</p>
+                            </div>
+                        </div>
+                    </div>
+                    <small class="text-muted">These are common project patterns. You can create workflows for any cleanup process.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private CreateProjectRequest model = new();
+    private bool isSubmitting = false;
+
+    private async Task HandleValidSubmit()
+    {
+        isSubmitting = true;
+        try
+        {
+            var project = await ProjectApi.CreateProjectAsync(model);
+            Navigation.NavigateTo($"/projects/{project.Id}");
+        }
+        catch (Exception ex)
+        {
+            // In real app, show error message to user
+            Console.WriteLine($"Error creating project: {ex.Message}");
+            // You could add an error message state here
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        Navigation.NavigateTo("/projects");
+    }
+}

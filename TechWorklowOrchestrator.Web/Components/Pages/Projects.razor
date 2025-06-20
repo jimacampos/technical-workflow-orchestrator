@@ -1,0 +1,249 @@
+﻿@page "/projects"
+@rendermode InteractiveServer
+@inject IProjectApiService ProjectApi
+@inject NavigationManager Navigation
+
+<PageTitle>Projects</PageTitle>
+
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h1 class="display-6">Projects</h1>
+            <p class="lead">Organize and manage your configuration cleanup projects</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" @onclick="NavigateToCreateProject">
+                <i class="bi bi-plus-circle"></i> New Project
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter and Search -->
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input type="text" class="form-control" placeholder="Search projects..." @bind="searchTerm" @oninput="FilterProjects" />
+            </div>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="selectedServiceFilter" @bind:after="FilterProjects">
+                <option value="">All Services</option>
+                @foreach (var service in Enum.GetValues<ServiceName>())
+                {
+                    <option value="@service">@service</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select class="form-select" @bind="selectedStatusFilter" @bind:after="FilterProjects">
+                <option value="">All Statuses</option>
+                @foreach (var status in Enum.GetValues<ProjectStatus>())
+                {
+                    <option value="@status">@status</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-outline-secondary w-100" @onclick="RefreshData">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    @if (filteredProjects?.Any() == true)
+    {
+        <!-- Projects by Service Groups -->
+        @foreach (var serviceGroup in filteredProjects.GroupBy(p => p.ServiceName).OrderBy(g => g.Key))
+        {
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="text-primary">
+                        <i class="bi bi-collection"></i> @serviceGroup.Key
+                        <span class="badge bg-primary">@serviceGroup.Count()</span>
+                    </h4>
+                </div>
+
+                <div class="row">
+                    @foreach (var project in serviceGroup.OrderByDescending(p => p.CreatedAt))
+                    {
+                        <div class="col-md-6 col-lg-4 mb-3">
+                            <div class="card h-100 @(project.Status == ProjectStatus.Active ? "border-success" : "")">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h5 class="card-title">@project.Name</h5>
+                                        <span class="badge @GetStatusBadgeClass(project.Status)">@project.Status</span>
+                                    </div>
+
+                                    @if (!string.IsNullOrEmpty(project.Description))
+                                    {
+                                        <p class="card-text text-muted small">@project.Description</p>
+                                    }
+
+                                    <div class="row text-center mb-3">
+                                        <div class="col-4">
+                                            <div class="text-primary">
+                                                <strong>@project.TotalWorkflows</strong>
+                                                <small class="d-block text-muted">Total</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="text-warning">
+                                                <strong>@project.ActiveWorkflows</strong>
+                                                <small class="d-block text-muted">Active</small>
+                                            </div>
+                                        </div>
+                                        <div class="col-4">
+                                            <div class="text-success">
+                                                <strong>@project.CompletedWorkflows</strong>
+                                                <small class="d-block text-muted">Done</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    @if (project.TotalWorkflows > 0)
+                                    {
+                                        <div class="mb-3">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <small class="text-muted">Progress</small>
+                                                <small class="text-muted">@project.CompletionPercentage.ToString("F0")%</small>
+                                            </div>
+                                            <div class="progress" style="height: 8px;">
+                                                <div class="progress-bar bg-success"
+                                                     role="progressbar"
+                                                     style="width: @project.CompletionPercentage%"
+                                                     aria-valuenow="@project.CompletionPercentage"
+                                                     aria-valuemin="0"
+                                                     aria-valuemax="100">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted">
+                                            Created @project.CreatedAt.ToString("MMM dd, yyyy")
+                                        </small>
+                                        <div class="btn-group" role="group">
+                                            <button class="btn btn-outline-primary btn-sm"
+                                                    @onclick="() => NavigateToProject(project.Id)"
+                                                    title="View Project">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                            <button class="btn btn-outline-success btn-sm"
+                                                    @onclick="() => NavigateToCreateWorkflow(project.Id)"
+                                                    title="Add Workflow">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+    else if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading projects...</p>
+        </div>
+    }
+    else
+    {
+        <div class="text-center py-5">
+            <i class="bi bi-collection fs-1 text-muted"></i>
+            <h5 class="text-muted mt-2">No projects found</h5>
+            @if (string.IsNullOrEmpty(searchTerm) && string.IsNullOrEmpty(selectedServiceFilter) && string.IsNullOrEmpty(selectedStatusFilter))
+            {
+                <p class="text-muted">Create your first project to get started</p>
+                <button class="btn btn-primary" @onclick="NavigateToCreateProject">
+                    <i class="bi bi-plus-circle"></i> Create Project
+                </button>
+            }
+            else
+            {
+                <p class="text-muted">Try adjusting your search filters</p>
+                <button class="btn btn-outline-secondary" @onclick="ClearFilters">
+                    <i class="bi bi-x-circle"></i> Clear Filters
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ProjectResponse>? allProjects;
+    private List<ProjectResponse>? filteredProjects;
+    private bool isLoading = true;
+    private string searchTerm = "";
+    private string selectedServiceFilter = "";
+    private string selectedStatusFilter = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshData();
+    }
+
+    private async Task RefreshData()
+    {
+        isLoading = true;
+        try
+        {
+            allProjects = await ProjectApi.GetAllProjectsAsync();
+            FilterProjects();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading projects: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void FilterProjects()
+    {
+        if (allProjects == null)
+        {
+            filteredProjects = new List<ProjectResponse>();
+            return;
+        }
+
+        filteredProjects = allProjects.Where(p =>
+            (string.IsNullOrEmpty(searchTerm) ||
+             p.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+             (!string.IsNullOrEmpty(p.Description) && p.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))) &&
+            (string.IsNullOrEmpty(selectedServiceFilter) || p.ServiceName.ToString() == selectedServiceFilter) &&
+            (string.IsNullOrEmpty(selectedStatusFilter) || p.Status.ToString() == selectedStatusFilter)
+        ).ToList();
+    }
+
+    private void ClearFilters()
+    {
+        searchTerm = "";
+        selectedServiceFilter = "";
+        selectedStatusFilter = "";
+        FilterProjects();
+    }
+
+    private void NavigateToCreateProject() => Navigation.NavigateTo("/projects/create"); // For now, use your test page
+    private void NavigateToProject(Guid id) => Navigation.NavigateTo($"/projects/{id}");
+    private void NavigateToCreateWorkflow(Guid projectId) => Navigation.NavigateTo($"/projects/{projectId}/workflows/create");
+
+    private string GetStatusBadgeClass(ProjectStatus status) => status switch
+    {
+        ProjectStatus.Planning => "bg-secondary",
+        ProjectStatus.Active => "bg-success",
+        ProjectStatus.OnHold => "bg-warning text-dark",
+        ProjectStatus.Completed => "bg-primary",
+        ProjectStatus.Cancelled => "bg-danger",
+        _ => "bg-secondary"
+    };
+}

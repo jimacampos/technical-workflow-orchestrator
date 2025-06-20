@@ -26,6 +26,7 @@ builder.Services.AddHttpClient("WorkflowAPI", client =>
 });
 
 builder.Services.AddScoped<IWorkflowApiService, WorkflowApiService>();
+builder.Services.AddSingleton<IProjectApiService, ProjectApiService>();
 
 var app = builder.Build();
 

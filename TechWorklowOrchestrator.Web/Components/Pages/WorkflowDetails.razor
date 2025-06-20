@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject IWorkflowApiService WorkflowApi
 @inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Workflow Details</PageTitle>
 
@@ -23,15 +24,40 @@
                         <div class="d-flex gap-2 mb-2">
                             <span class="badge bg-secondary fs-6">@workflow.WorkflowType</span>
                             <span class="badge @GetStateBadgeClass(workflow.CurrentState) fs-6">@workflow.CurrentState</span>
+
+                            <!-- Auto-refresh indicator -->
+                            @if (ShouldAutoRefresh() && autoRefreshTimer != null)
+                            {
+                                <span class="badge bg-info fs-6">
+                                    <i class="bi bi-arrow-clockwise"></i> Auto-refreshing
+                                </span>
+                            }
                         </div>
-                        <p class="text-muted">Created @workflow.CreatedAt.ToString("MMMM dd, yyyy 'at' HH:mm")</p>
+                        <p class="text-muted">
+                            Created @workflow.CreatedAt.ToString("MMMM dd, yyyy 'at' HH:mm")
+                            @if (lastRefresh != DateTime.MinValue)
+                            {
+                                <span class="ms-3">
+                                    <small>Last updated: @lastRefresh.ToString("HH:mm:ss")</small>
+                                </span>
+                            }
+                        </p>
                     </div>
                     <div class="text-end">
                         @if (workflow.CurrentState == WorkflowState.Created)
                         {
-                            <button class="btn btn-success me-2" @onclick="StartWorkflow">
-                                <i class="bi bi-play-circle"></i> Start Workflow
-                            </button>
+                            <button class="btn btn-success me-2" @onclick="StartWorkflow" disabled="@isStartingWorkflow">
+                @if (isStartingWorkflow)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    <span>Starting...</span>
+                }
+                else
+                {
+                    <i class="bi bi-play-circle"></i>
+                    <span>Start Workflow</span>
+                }
+            </button>
                         }
                         @if (CanHandleExternalEvents(workflow))
                         {
@@ -39,13 +65,46 @@
                                 <i class="bi bi-lightning"></i> Handle Event
                             </button>
                         }
-                        <button class="btn btn-outline-secondary" @onclick="RefreshWorkflow">
-                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        <button class="btn btn-outline-secondary" @onclick="RefreshWorkflow" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-arrow-clockwise"></i>
+                            }
+                            Refresh
                         </button>
                     </div>
                 </div>
             </div>
         </div>
+
+        @if (isStartingWorkflow)
+        {
+            <div class="alert alert-info" role="alert">
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                    <div>Starting workflow and initializing stages...</div>
+                </div>
+            </div>
+        }
+
+        @if (ShouldAutoRefresh() && autoRefreshTimer != null)
+        {
+            <div class="alert alert-light border-info" role="alert">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <i class="bi bi-info-circle text-info"></i>
+                        <strong>Live tracking:</strong> This page auto-refreshes every 5 seconds while the workflow is active.
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="StopAutoRefresh">
+                        Stop auto-refresh
+                    </button>
+                </div>
+            </div>
+        }
 
         <div class="row">
             <div class="col-md-8">
@@ -104,10 +163,116 @@
                         }
                     </div>
                 </div>
+                @if (workflow?.WorkflowType == WorkflowType.ArchiveOnly && workflow.Metadata.ContainsKey("stageProgress"))
+                {
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">
+                                <i class="bi bi-diagram-3"></i> Stage Progress
+                            </h5>
+                        </div>
+
+                        <div class="card-body">
+                            @if (stageProgress?.Any() == true)
+                            {
+                                <div class="timeline">
+                                    @foreach (var stage in stageProgress.Select((s, index) => new { stage = s, index }))
+                                    {
+                                        <div class="timeline-item @GetStageTimelineClass(stage.stage.Status)">
+
+                                            <!-- Timeline Marker -->
+                                            <div class="timeline-marker">
+                                                @if (stage.stage.Status == "Completed")
+                                                {
+                                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                                }
+                                                else if (stage.stage.Status == "ReducingTraffic")
+                                                {
+                                                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                                                }
+                                                else if (stage.stage.Status == "Waiting")
+                                                {
+                                                    <i class="bi bi-clock-fill text-warning"></i>
+                                                }
+                                                else if (stage.stage.Status == "Failed")
+                                                {
+                                                    <i class="bi bi-x-circle-fill text-danger"></i>
+                                                }
+                                                else
+                                                {
+                                                    <i class="bi bi-circle text-muted"></i>
+                                                }
+                                            </div>
+
+                                            <!-- Timeline Content -->
+                                            <div class="timeline-content">
+                                                <div class="d-flex justify-content-between align-items-start">
+                                                    <div>
+                                                        <h6 class="mb-1">@stage.stage.Name</h6>
+                                                        <div class="mb-2">
+                                                            <span class="badge @GetStageBadgeClass(stage.stage.Status)">
+                                                                @GetStageStatusText(stage.stage.Status)
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div class="text-end">
+                                                        <small class="text-muted">
+                                                            @stage.stage.CurrentAllocationPercentage% → @stage.stage.TargetAllocationPercentage%
+                                                        </small>
+                                                    </div>
+                                                </div>
+
+                                                <!-- Progress Bar -->
+                                                @if (stage.stage.Status == "ReducingTraffic" || stage.stage.Status == "Waiting")
+                                                {
+                                                    <div class="mb-2">
+                                                        <div class="progress" style="height: 8px;">
+                                                            <div class="progress-bar @GetStageProgressBarClass(stage.stage.Status)"
+                                                                 role="progressbar"
+                                                                 style="width: @GetStageProgressPercentage(stage.stage)%">
+                                                            </div>
+                                                        </div>
+                                                        <small class="text-muted">@GetStageProgressText(stage.stage)</small>
+                                                    </div>
+                                                }
+
+                                                <!-- Timing Info -->
+                                                <div class="small text-muted">
+                                                    @if (stage.stage.StartedAt.HasValue)
+                                                    {
+                                                        <div>Started: @stage.stage.StartedAt.Value.ToString("MMM dd, HH:mm")</div>
+                                                    }
+                                                    @if (stage.stage.Status == "Waiting" && stage.stage.WaitStartTime.HasValue)
+                                                    {
+                                                        <div>Wait started: @stage.stage.WaitStartTime.Value.ToString("MMM dd, HH:mm")</div>
+                                                        <div>Wait duration: @FormatDuration(stage.stage.WaitDuration)</div>
+                                                    }
+                                                    @if (stage.stage.CompletedAt.HasValue)
+                                                    {
+                                                        <div>Completed: @stage.stage.CompletedAt.Value.ToString("MMM dd, HH:mm")</div>
+                                                    }
+                                                    @if (!string.IsNullOrEmpty(stage.stage.ErrorMessage))
+                                                    {
+                                                        <div class="text-danger">Error: @stage.stage.ErrorMessage</div>
+                                                    }
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="text-muted">No stage information available</p>
+                            }
+                        </div>
+                    </div>
+                }
             </div>
 
             <div class="col-md-4">
-                @if (workflow.Metadata?.Any() == true)
+                @* @if (workflow.Metadata?.Any() == true)
                 {
                     <div class="card mb-4">
                         <div class="card-header">
@@ -122,7 +287,7 @@
                             }
                         </div>
                     </div>
-                }
+                } *@
 
                 <div class="card">
                     <div class="card-header">
@@ -146,6 +311,7 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     <!-- External Event Modal -->
@@ -218,6 +384,72 @@ else
     </div>
 }
 
+<style>
+    .timeline {
+        position: relative;
+        padding-left: 0;
+    }
+
+    .timeline-item {
+        position: relative;
+        padding-left: 40px;
+        padding-bottom: 20px;
+    }
+
+        .timeline-item:not(:last-child)::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            top: 25px;
+            bottom: -20px;
+            width: 2px;
+            background-color: #dee2e6;
+        }
+
+        .timeline-item.active::before {
+            background-color: #0d6efd;
+        }
+
+        .timeline-item.completed::before {
+            background-color: #198754;
+        }
+
+    .timeline-marker {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: white;
+        border-radius: 50%;
+    }
+
+    .timeline-content {
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        padding: 12px;
+        border-left: 3px solid #dee2e6;
+    }
+
+    .timeline-item.active .timeline-content {
+        border-left-color: #0d6efd;
+        background-color: #f0f8ff;
+    }
+
+    .timeline-item.completed .timeline-content {
+        border-left-color: #198754;
+        background-color: #f0fff0;
+    }
+
+    .timeline-item.failed .timeline-content {
+        border-left-color: #dc3545;
+        background-color: #fff5f5;
+    }
+</style>
+
 @code {
     [Parameter] public Guid Id { get; set; }
 
@@ -227,26 +459,130 @@ else
     private string selectedEventType = "";
     private string eventDataJson = "{}";
     private bool isProcessingEvent = false;
+    private List<StageProgressModel>? stageProgress;
+
+    // New properties for improved UX
+    private bool isStartingWorkflow = false;
+    private Timer? autoRefreshTimer;
+    private bool isAutoRefreshing = false;
+    private DateTime lastRefresh = DateTime.MinValue;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadWorkflow();
+        StartAutoRefresh();
     }
 
     protected override async Task OnParametersSetAsync()
     {
         if (workflow?.Id != Id)
         {
+            StopAutoRefresh();
             await LoadWorkflow();
+            StartAutoRefresh();
         }
     }
 
-    private async Task LoadWorkflow()
+    // Clean up timer when component is disposed
+    public void Dispose()
     {
-        isLoading = true;
+        StopAutoRefresh();
+    }
+
+    private void StartAutoRefresh()
+    {
+        // Only auto-refresh if workflow is active (not completed or failed)
+        if (ShouldAutoRefresh())
+        {
+            autoRefreshTimer = new System.Timers.Timer(5000); // 5 seconds
+            autoRefreshTimer.Elapsed += async (sender, e) =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    await RefreshWorkflow();
+                    StateHasChanged();
+                });
+            };
+            autoRefreshTimer.AutoReset = true;
+            autoRefreshTimer.Start();
+        }
+    }
+
+    private void StopAutoRefresh()
+    {
+        autoRefreshTimer?.Stop();
+        autoRefreshTimer?.Dispose();
+        autoRefreshTimer = null;
+    }
+
+    private bool ShouldAutoRefresh()
+    {
+        if (workflow == null) return false;
+
+        // Auto-refresh for archive workflows that are in progress or waiting
+        if (workflow.WorkflowType == WorkflowType.ArchiveOnly &&
+            (workflow.CurrentState == WorkflowState.InProgress || workflow.CurrentState == WorkflowState.Waiting || workflow.CurrentState == WorkflowState.Created))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task AutoRefresh()
+    {
+        if (isAutoRefreshing || isLoading) return;
+
+        try
+        {
+            isAutoRefreshing = true;
+            await LoadWorkflow(silent: true);
+
+            // Stop auto-refresh if workflow is completed or failed
+            if (!ShouldAutoRefresh())
+            {
+                StopAutoRefresh();
+            }
+
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Auto-refresh failed: {ex.Message}");
+        }
+        finally
+        {
+            isAutoRefreshing = false;
+        }
+    }
+
+    private async Task LoadWorkflow(bool silent = false)
+    {
+        if (!silent)
+        {
+            isLoading = true;
+        }
+
         try
         {
             workflow = await WorkflowApi.GetWorkflowAsync(Id);
+            lastRefresh = DateTime.Now;
+
+            // Parse stage progress if available
+            if (workflow?.WorkflowType == WorkflowType.ArchiveOnly &&
+                workflow.Metadata.ContainsKey("stageProgress"))
+            {
+                try
+                {
+                    var stageProgressJson = workflow.Metadata["stageProgress"];
+                    stageProgress = System.Text.Json.JsonSerializer.Deserialize<List<StageProgressModel>>(stageProgressJson);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error parsing stage progress: {ex.Message}");
+                    stageProgress = null;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -254,7 +590,10 @@ else
         }
         finally
         {
-            isLoading = false;
+            if (!silent)
+            {
+                isLoading = false;
+            }
         }
     }
 
@@ -265,13 +604,26 @@ else
 
     private async Task StartWorkflow()
     {
+        isStartingWorkflow = true;
         try
         {
             workflow = await WorkflowApi.StartWorkflowAsync(Id);
+
+            // Immediately start auto-refresh after starting
+            StopAutoRefresh();
+            StartAutoRefresh();
+
+            // Show success feedback
+            await LoadWorkflow(silent: true);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error starting workflow: {ex.Message}");
+            // You could add error display here
+        }
+        finally
+        {
+            isStartingWorkflow = false;
         }
     }
 
@@ -341,4 +693,117 @@ else
         WorkflowState.WaitingForDeployment => "bg-warning",
         _ => "bg-primary"
     };
+
+    private string GetStageTimelineClass(string status) => status switch
+    {
+        "Completed" => "completed",
+        "ReducingTraffic" or "Waiting" => "active",
+        "Failed" => "failed",
+        _ => ""
+    };
+
+    private string GetStageBadgeClass(string status) => status switch
+    {
+        "Completed" => "bg-success",
+        "ReducingTraffic" => "bg-primary",
+        "Waiting" => "bg-warning text-dark",
+        "Failed" => "bg-danger",
+        "Pending" => "bg-secondary",
+        _ => "bg-light text-dark"
+    };
+
+    private string GetStageStatusText(string status) => status switch
+    {
+        "Pending" => "Pending",
+        "ReducingTraffic" => "Reducing Traffic",
+        "Waiting" => "Waiting",
+        "Completed" => "Completed",
+        "Failed" => "Failed",
+        _ => status
+    };
+
+    private string GetStageProgressBarClass(string status) => status switch
+    {
+        "ReducingTraffic" => "bg-primary",
+        "Waiting" => "bg-warning",
+        _ => "bg-secondary"
+    };
+
+    private double GetStageProgressPercentage(StageProgressModel stage)
+    {
+        if (stage.Status == "ReducingTraffic")
+        {
+            // Calculate progress based on traffic reduction
+            var totalReduction = stage.TargetAllocationPercentage - stage.CurrentAllocationPercentage;
+            if (totalReduction == 0) return 100;
+
+            // This is simplified - in real implementation, you'd track actual current percentage
+            return 50; // Assume 50% through the reduction
+        }
+        else if (stage.Status == "Waiting")
+        {
+            // Calculate progress based on wait time
+            if (stage.WaitStartTime.HasValue)
+            {
+                var elapsed = DateTime.UtcNow - stage.WaitStartTime.Value;
+                var progress = (elapsed.TotalMilliseconds / stage.WaitDuration.TotalMilliseconds) * 100;
+                return Math.Min(progress, 100);
+            }
+        }
+
+        return 0;
+    }
+
+    private string GetStageProgressText(StageProgressModel stage)
+    {
+        if (stage.Status == "ReducingTraffic")
+        {
+            return "Reducing traffic allocation...";
+        }
+        else if (stage.Status == "Waiting" && stage.WaitStartTime.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - stage.WaitStartTime.Value;
+            var remaining = stage.WaitDuration - elapsed;
+
+            if (remaining.TotalSeconds > 0)
+            {
+                return $"Waiting - {FormatDuration(remaining)} remaining";
+            }
+            else
+            {
+                return "Wait period completed";
+            }
+        }
+
+        return "";
+    }
+
+    private string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalDays >= 1)
+        {
+            return $"{(int)duration.TotalDays}d {duration.Hours}h";
+        }
+        else if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        }
+        else
+        {
+            return $"{(int)duration.TotalMinutes}m";
+        }
+    }
+
+    public class StageProgressModel
+    {
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "";
+        public int CurrentAllocationPercentage { get; set; }
+        public int TargetAllocationPercentage { get; set; }
+        public DateTime? StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public DateTime? WaitStartTime { get; set; }
+        public TimeSpan WaitDuration { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
 }

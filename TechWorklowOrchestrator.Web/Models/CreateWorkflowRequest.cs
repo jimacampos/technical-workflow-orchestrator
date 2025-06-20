@@ -20,5 +20,7 @@ namespace TechWorklowOrchestrator.Web.Models
         public string Description { get; set; } = "";
 
         public Dictionary<string, string> Metadata { get; set; } = new();
+
+        public Guid? ProjectId { get; set; }
     }
 }

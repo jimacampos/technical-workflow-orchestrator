@@ -17,6 +17,6 @@ namespace TechWorklowOrchestrator.ApiService.Dto
 
         public string Description { get; set; }
 
-        public Dictionary<string, string> Metadata { get; set; } = new();
+        public Dictionary<string, string>? Metadata { get; set; } = new();
     }
 }

@@ -12,5 +12,9 @@
         public string? ErrorMessage { get; set; }
         public WorkflowProgress Progress { get; set; } = new();
         public Dictionary<string, string> Metadata { get; set; } = new();
+
+        public Guid? ProjectId { get; set; }
+        public string? ProjectName { get; set; }
+        public ServiceName? ProjectService { get; set; }
     }
 }

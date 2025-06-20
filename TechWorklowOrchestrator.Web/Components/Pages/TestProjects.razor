@@ -1,0 +1,115 @@
+﻿@page "/test-projects"
+@rendermode InteractiveServer
+@inject IProjectApiService ProjectApiService
+
+<h3>Test Projects Page</h3>
+
+<button class="btn btn-primary" @onclick="CreateTestProject">Create Test Project</button>
+<button class="btn btn-secondary ms-2" @onclick="LoadProjects">Refresh</button>
+
+<hr />
+
+<h4>All Projects (@projects.Count)</h4>
+
+@if (loading)
+{
+    <p>Loading...</p>
+}
+else if (projects.Any())
+{
+    <div class="row">
+        @foreach (var project in projects)
+        {
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">@project.Name</h5>
+                        <p class="card-text">
+                            <strong>Service:</strong> @project.ServiceName<br />
+                            <strong>Status:</strong> @project.Status<br />
+                            <strong>Workflows:</strong> @project.TotalWorkflows<br />
+                            <strong>Completion:</strong> @project.CompletionPercentage.ToString("F1")%<br />
+                            <strong>Created:</strong> @project.CreatedAt.ToString("MM/dd/yyyy HH:mm")
+                        </p>
+                        @if (!string.IsNullOrEmpty(project.Description))
+                        {
+                            <p class="card-text"><small class="text-muted">@project.Description</small></p>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p>No projects created yet.</p>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger mt-3">
+        @errorMessage
+    </div>
+}
+
+@code {
+    private List<ProjectResponse> projects = new List<ProjectResponse>();
+    private bool loading = false;
+    private string errorMessage = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjects();
+    }
+
+    private async Task CreateTestProject()
+    {
+        try
+        {
+            errorMessage = string.Empty;
+            loading = true;
+
+            // Create a test project with a random service
+            var services = Enum.GetValues<ServiceName>();
+            var randomService = services[Random.Shared.Next(services.Length)];
+
+            var request = new CreateProjectRequest
+            {
+                Name = $"Test Project {DateTime.Now:HH:mm:ss}",
+                ServiceName = randomService,
+                Description = "This is a test project created from the web interface"
+            };
+
+            await ProjectApiService.CreateProjectAsync(request);
+            await LoadProjects();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error creating project: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private async Task LoadProjects()
+    {
+        try
+        {
+            errorMessage = string.Empty;
+            loading = true;
+            projects = await ProjectApiService.GetAllProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading projects: {ex.Message}";
+        }
+        finally
+        {
+            loading = false;
+            StateHasChanged();
+        }
+    }
+}

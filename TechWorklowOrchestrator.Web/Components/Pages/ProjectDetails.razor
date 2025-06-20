@@ -1,0 +1,340 @@
+﻿@page "/projects/{id:guid}"
+@rendermode InteractiveServer
+@inject IProjectApiService ProjectApi
+@inject NavigationManager Navigation
+
+<PageTitle>@(project?.Name ?? "Project Details")</PageTitle>
+
+@if (project != null)
+{
+    <div class="container-fluid">
+        <div class="row mb-4">
+            <div class="col">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="/">Home</a></li>
+                        <li class="breadcrumb-item"><a href="/projects">Projects</a></li>
+                        <li class="breadcrumb-item active">@project.Name</li>
+                    </ol>
+                </nav>
+
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <h1 class="display-6">@project.Name</h1>
+                        <div class="d-flex gap-2 mb-2">
+                            <span class="badge bg-primary fs-6">@project.ServiceName</span>
+                            <span class="badge @GetStatusBadgeClass(project.Status) fs-6">@project.Status</span>
+                        </div>
+                        <p class="text-muted">Created @project.CreatedAt.ToString("MMMM dd, yyyy")</p>
+                        @if (!string.IsNullOrEmpty(project.Description))
+                        {
+                            <p class="lead">@project.Description</p>
+                        }
+                    </div>
+                    <div class="text-end">
+                        <button class="btn btn-success me-2" @onclick="NavigateToCreateWorkflow">
+                            <i class="bi bi-plus-circle"></i> Add Workflow
+                        </button>
+                        <button class="btn btn-outline-secondary" @onclick="RefreshData">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Progress Overview -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@project.TotalWorkflows</h4>
+                                <p class="mb-0">Total Workflows</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="bi bi-diagram-3 fs-1"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-dark">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@project.ActiveWorkflows</h4>
+                                <p class="mb-0">Active</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="bi bi-play-circle fs-1"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@project.CompletedWorkflows</h4>
+                                <p class="mb-0">Completed</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="bi bi-check-circle fs-1"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <h4>@project.CompletionPercentage.ToString("F0")%</h4>
+                                <p class="mb-0">Complete</p>
+                            </div>
+                            <div class="align-self-center">
+                                <i class="bi bi-pie-chart fs-1"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overall Progress Bar -->
+        @if (project.TotalWorkflows > 0)
+        {
+            <div class="row mb-4">
+                <div class="col">
+                    <div class="card">
+                        <div class="card-body">
+                            <h6 class="card-title">Project Progress</h6>
+                            <div class="progress mb-2" style="height: 25px;">
+                                <div class="progress-bar bg-success"
+                                     role="progressbar"
+                                     style="width: @project.CompletionPercentage%"
+                                     aria-valuenow="@project.CompletionPercentage"
+                                     aria-valuemin="0"
+                                     aria-valuemax="100">
+                                    @project.CompletionPercentage.ToString("F1")%
+                                </div>
+                            </div>
+                            <small class="text-muted">
+                                @project.CompletedWorkflows of @project.TotalWorkflows workflows completed
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Workflows List -->
+        <div class="row">
+            <div class="col">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Project Workflows</h5>
+                        <button class="btn btn-outline-primary btn-sm" @onclick="NavigateToCreateWorkflow">
+                            <i class="bi bi-plus"></i> Add Workflow
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (workflows?.Any() == true)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Configuration</th>
+                                            <th>Type</th>
+                                            <th>State</th>
+                                            <th>Progress</th>
+                                            <th>Created</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var workflow in workflows)
+                                        {
+                                            <tr>
+                                                <td>
+                                                    <strong>@workflow.ConfigurationName</strong>
+                                                    @if (!string.IsNullOrEmpty(workflow.ErrorMessage))
+                                                    {
+                                                        <br>
+                                                        <small class="text-danger">
+                                                            <i class="bi bi-exclamation-triangle"></i> @workflow.ErrorMessage
+                                                        </small>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-secondary">@workflow.WorkflowType</span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge @GetStateBadgeClass(workflow.CurrentState.ToString())">
+                                                        @workflow.CurrentState
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div class="progress" style="height: 20px;">
+                                                        <div class="progress-bar @GetProgressBarClass(workflow.CurrentState.ToString())"
+                                                             role="progressbar"
+                                                             style="width: @workflow.Progress.PercentComplete%"
+                                                             aria-valuenow="@workflow.Progress.PercentComplete"
+                                                             aria-valuemin="0"
+                                                             aria-valuemax="100">
+                                                            @($"{workflow.Progress.PercentComplete:F0}%")
+                                                        </div>
+                                                    </div>
+                                                    <small class="text-muted">@workflow.Progress.CurrentStepDescription</small>
+                                                </td>
+                                                <td>
+                                                    <small>@workflow.CreatedAt.ToString("MMM dd, HH:mm")</small>
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-outline-primary btn-sm"
+                                                            @onclick="() => NavigateToWorkflowDetails(workflow.Id)">
+                                                        <i class="bi bi-eye"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        else if (isLoading)
+                        {
+                            <div class="text-center">
+                                <div class="spinner-border" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="text-center py-4">
+                                <i class="bi bi-inbox fs-1 text-muted"></i>
+                                <h5 class="text-muted mt-2">No workflows yet</h5>
+                                <p class="text-muted">Add your first workflow to this project</p>
+                                <button class="btn btn-primary" @onclick="NavigateToCreateWorkflow">
+                                    <i class="bi bi-plus-circle"></i> Add Workflow
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else if (isLoading)
+{
+    <div class="container text-center">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading project...</p>
+    </div>
+}
+else
+{
+    <div class="container">
+        <div class="alert alert-danger">
+            <h4>Project Not Found</h4>
+            <p>The project with ID @Id was not found.</p>
+            <a href="/projects" class="btn btn-primary">Browse Projects</a>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private ProjectResponse? project;
+    private List<WorkflowResponse>? workflows;
+    private bool isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProjectData();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (project?.Id != Id)
+        {
+            await LoadProjectData();
+        }
+    }
+
+    private async Task LoadProjectData()
+    {
+        isLoading = true;
+        try
+        {
+            var projectTask = ProjectApi.GetProjectAsync(Id);
+            var workflowsTask = ProjectApi.GetWorkflowsByProjectAsync(Id);
+
+            await Task.WhenAll(projectTask, workflowsTask);
+
+            project = await projectTask;
+            workflows = await workflowsTask;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading project data: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task RefreshData()
+    {
+        await LoadProjectData();
+    }
+
+    private void NavigateToCreateWorkflow()
+    {
+        Navigation.NavigateTo($"/projects/{Id}/workflows/create");
+    }
+
+    private void NavigateToWorkflowDetails(Guid workflowId)
+    {
+        Navigation.NavigateTo($"/workflows/{workflowId}");
+    }
+
+    private string GetStatusBadgeClass(ProjectStatus status) => status switch
+    {
+        ProjectStatus.Planning => "bg-secondary",
+        ProjectStatus.Active => "bg-success",
+        ProjectStatus.OnHold => "bg-warning text-dark",
+        ProjectStatus.Completed => "bg-primary",
+        ProjectStatus.Cancelled => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetStateBadgeClass(string state) => state switch
+    {
+        "Created" => "bg-secondary",
+        "InProgress" => "bg-primary",
+        "Completed" => "bg-success",
+        "Failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetProgressBarClass(string state) => state switch
+    {
+        "Completed" => "bg-success",
+        "Failed" => "bg-danger",
+        _ => "bg-primary"
+    };
+}

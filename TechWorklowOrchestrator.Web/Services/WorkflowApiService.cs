@@ -22,29 +22,144 @@ namespace TechWorklowOrchestrator.Web.Services
 
         public async Task<WorkflowSummary> GetSummaryAsync()
         {
-            var response = await _httpClient.GetAsync("api/workflows/summary");
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<WorkflowSummary>(json, _jsonOptions) ?? new WorkflowSummary();
+            var combinedSummary = new WorkflowSummary();
+
+            try
+            {
+                // Get standalone workflow summary
+                var response = await _httpClient.GetAsync("api/workflows/summary");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var standaloneSummary = JsonSerializer.Deserialize<WorkflowSummary>(json, _jsonOptions);
+                    if (standaloneSummary != null)
+                    {
+                        combinedSummary.TotalWorkflows += standaloneSummary.TotalWorkflows;
+                        combinedSummary.ActiveWorkflows += standaloneSummary.ActiveWorkflows;
+                        combinedSummary.CompletedWorkflows += standaloneSummary.CompletedWorkflows;
+                        combinedSummary.FailedWorkflows += standaloneSummary.FailedWorkflows;
+                        combinedSummary.AwaitingManualAction += standaloneSummary.AwaitingManualAction;
+
+                        // Combine ByType dictionaries
+                        foreach (var kvp in standaloneSummary.ByType)
+                        {
+                            combinedSummary.ByType[kvp.Key] = combinedSummary.ByType.GetValueOrDefault(kvp.Key) + kvp.Value;
+                        }
+
+                        // Combine ByState dictionaries
+                        foreach (var kvp in standaloneSummary.ByState)
+                        {
+                            combinedSummary.ByState[kvp.Key] = combinedSummary.ByState.GetValueOrDefault(kvp.Key) + kvp.Value;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading standalone workflow summary: {ex.Message}");
+            }
+
+            try
+            {
+                // Get project workflow summary
+                var projectResponse = await _httpClient.GetAsync("api/projects/workflows/summary");
+                if (projectResponse.IsSuccessStatusCode)
+                {
+                    var projectJson = await projectResponse.Content.ReadAsStringAsync();
+                    var projectSummary = JsonSerializer.Deserialize<WorkflowSummary>(projectJson, _jsonOptions);
+                    if (projectSummary != null)
+                    {
+                        combinedSummary.TotalWorkflows += projectSummary.TotalWorkflows;
+                        combinedSummary.ActiveWorkflows += projectSummary.ActiveWorkflows;
+                        combinedSummary.CompletedWorkflows += projectSummary.CompletedWorkflows;
+                        combinedSummary.FailedWorkflows += projectSummary.FailedWorkflows;
+                        combinedSummary.AwaitingManualAction += projectSummary.AwaitingManualAction;
+
+                        // Combine ByType dictionaries
+                        foreach (var kvp in projectSummary.ByType)
+                        {
+                            combinedSummary.ByType[kvp.Key] = combinedSummary.ByType.GetValueOrDefault(kvp.Key) + kvp.Value;
+                        }
+
+                        // Combine ByState dictionaries
+                        foreach (var kvp in projectSummary.ByState)
+                        {
+                            combinedSummary.ByState[kvp.Key] = combinedSummary.ByState.GetValueOrDefault(kvp.Key) + kvp.Value;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading project workflow summary: {ex.Message}");
+            }
+
+            return combinedSummary;
         }
 
         public async Task<List<WorkflowResponse>> GetAllWorkflowsAsync()
         {
-            var response = await _httpClient.GetAsync("api/workflows");
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<List<WorkflowResponse>>(json, _jsonOptions) ?? new List<WorkflowResponse>();
+            var allWorkflows = new List<WorkflowResponse>();
+
+            try
+            {
+                // Get standalone workflows from original endpoint
+                var response = await _httpClient.GetAsync("api/workflows");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var standaloneWorkflows = JsonSerializer.Deserialize<List<WorkflowResponse>>(json, _jsonOptions) ?? new List<WorkflowResponse>();
+                    allWorkflows.AddRange(standaloneWorkflows);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading standalone workflows: {ex.Message}");
+            }
+
+            try
+            {
+                // Get project-based workflows from new endpoint
+                var projectResponse = await _httpClient.GetAsync("api/projects/workflows");
+                if (projectResponse.IsSuccessStatusCode)
+                {
+                    var projectJson = await projectResponse.Content.ReadAsStringAsync();
+                    var projectWorkflows = JsonSerializer.Deserialize<List<WorkflowResponse>>(projectJson, _jsonOptions) ?? new List<WorkflowResponse>();
+                    allWorkflows.AddRange(projectWorkflows);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading project workflows: {ex.Message}");
+            }
+
+            return allWorkflows;
         }
 
         public async Task<WorkflowResponse?> GetWorkflowAsync(Guid id)
         {
-            var response = await _httpClient.GetAsync($"api/workflows/{id}");
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return null;
+            // First try the project-based workflow endpoint (which has stage progress)
+            var projectResponse = await _httpClient.GetAsync($"api/projects/workflows/{id}");
+            if (projectResponse.IsSuccessStatusCode)
+            {
+                var projectJson = await projectResponse.Content.ReadAsStringAsync();
+                var workflowFromProject = JsonSerializer.Deserialize<WorkflowResponse>(projectJson, _jsonOptions);
+                if (workflowFromProject != null)
+                {
+                    return workflowFromProject;
+                }
+            }
 
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            return JsonSerializer.Deserialize<WorkflowResponse>(json, _jsonOptions);
+            // If not found in projects, try the original workflow endpoint
+            var response = await _httpClient.GetAsync($"api/workflows/{id}");
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                return JsonSerializer.Deserialize<WorkflowResponse>(json, _jsonOptions);
+            }
+
+            // Not found in either endpoint
+            return null;
         }
 
         public async Task<WorkflowResponse> CreateWorkflowAsync(CreateWorkflowRequest request)
@@ -59,6 +174,26 @@ namespace TechWorklowOrchestrator.Web.Services
 
         public async Task<WorkflowResponse> StartWorkflowAsync(Guid id)
         {
+            // First try the project-based workflow start endpoint
+            try
+            {
+                var projectResponse = await _httpClient.PostAsync($"api/projects/workflows/{id}/start", null);
+                if (projectResponse.IsSuccessStatusCode)
+                {
+                    var projectJson = await projectResponse.Content.ReadAsStringAsync();
+                    var workflowFromProject = JsonSerializer.Deserialize<WorkflowResponse>(projectJson, _jsonOptions);
+                    if (workflowFromProject != null)
+                    {
+                        return workflowFromProject;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Project workflow start failed: {ex.Message}");
+            }
+
+            // If project endpoint fails, try the original workflow endpoint
             var response = await _httpClient.PostAsync($"api/workflows/{id}/start", null);
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();

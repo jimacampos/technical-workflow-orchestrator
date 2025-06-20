@@ -1,6 +1,8 @@
 ﻿@page "/workflows/create"
+@page "/projects/{projectId:guid}/workflows/create"
 @rendermode InteractiveServer
 @inject IWorkflowApiService WorkflowApi
+@inject IProjectApiService ProjectApi
 @inject NavigationManager Navigation
 
 <PageTitle>Create Workflow</PageTitle>
@@ -13,11 +15,34 @@
                     <h4 class="mb-0">
                         <i class="bi bi-plus-circle"></i>
                         Create New Workflow
+                        @if (selectedProject != null)
+                        {
+                            <small class="text-muted">in @selectedProject.Name</small>
+                        }
                     </h4>
                 </div>
                 <div class="card-body">
                     <EditForm Model="@model" OnValidSubmit="@HandleValidSubmit">
                         <DataAnnotationsValidator />
+
+                        <!-- Project Selection (only show if not coming from project page) -->
+                        @if (ProjectId == null)
+                        {
+                            <div class="mb-3">
+                                <label for="projectSelect" class="form-label">Project (Optional)</label>
+                                <select id="projectSelect" class="form-select" @bind="selectedProjectId">
+                                    <option value="">No Project (Standalone Workflow)</option>
+                                    @if (projects != null)
+                                    {
+                                        @foreach (var project in projects)
+                                        {
+                                            <option value="@project.Id">@project.Name (@project.ServiceName)</option>
+                                        }
+                                    }
+                                </select>
+                                <div class="form-text">Optionally assign this workflow to a project for better organization</div>
+                            </div>
+                        }
 
                         <div class="mb-3">
                             <label for="configName" class="form-label">Configuration Name *</label>
@@ -38,13 +63,126 @@
 
                         @if (model.WorkflowType == WorkflowType.ArchiveOnly)
                         {
-                            <div class="mb-3">
-                                <label for="trafficPercentage" class="form-label">Current Traffic Percentage</label>
-                                <InputNumber id="trafficPercentage" class="form-control" @bind-Value="model.CurrentTrafficPercentage" />
-                                <div class="form-text">Current percentage of traffic using this configuration</div>
-                                <ValidationMessage For="@(() => model.CurrentTrafficPercentage)" />
+                            <div class="mb-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">
+                                            <i class="bi bi-gear"></i> Stage Configuration
+                                            <small class="text-muted">- Define the stages for traffic reduction</small>
+                                        </h6>
+                                    </div>
+
+                                    <div class="card-body">
+                                        <p class="text-muted small mb-3">
+                                            Configure the stages in the order you want to reduce traffic (typically: Production → Test → Development).
+                                            Each stage can have different allocation percentages and wait times.
+                                        </p>
+
+                                        @foreach (var stage in archiveStages.Select((stage, index) => new { stage, index }))
+                                        {
+                                            <div class="border rounded p-3 mb-3 @(stage.index == 0 ? "border-primary" : "border-secondary")">
+                                                <div class="row align-items-center">
+
+                                                    <div class="col-md-3">
+                                                        <label class="form-label">Stage Name</label>
+                                                        <input type="text" class="form-control" @bind="stage.stage.Name" placeholder="e.g., Production" />
+                                                    </div>
+
+                                                    <div class="col-md-2">
+                                                        <label class="form-label">Current %</label>
+                                                        <input type="number" class="form-control" @bind="stage.stage.CurrentPercentage" min="0" max="100" />
+                                                    </div>
+
+                                                    <div class="col-md-2">
+                                                        <label class="form-label">Target %</label>
+                                                        <input type="number" class="form-control" @bind="stage.stage.TargetPercentage" min="0" max="100" />
+                                                    </div>
+
+                                                    <div class="col-md-2">
+                                                        <label class="form-label">Wait Hours</label>
+                                                        <input type="number" class="form-control" @bind="stage.stage.WaitHours" min="0" max="168" step="0.5" />
+                                                    </div>
+
+                                                    <div class="col-md-2">
+                                                        <label class="form-label">Actions</label>
+                                                        <div class="btn-group w-100" role="group">
+                                                            @if (stage.index > 0)
+                                                            {
+                                                                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => MoveStageUp(stage.index)" title="Move Up">
+                                                                    <i class="bi bi-arrow-up"></i>
+                                                                </button>
+                                                            }
+
+                                                            @if (archiveStages.Count > 1)
+                                                            {
+                                                                <button type="button" class="btn btn-outline-danger btn-sm" @onclick="() => RemoveStage(stage.stage)" title="Remove">
+                                                                    <i class="bi bi-trash"></i>
+                                                                </button>
+                                                            }
+
+                                                            @if (stage.index < archiveStages.Count - 1)
+                                                            {
+                                                                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => MoveStageDown(stage.index)" title="Move Down">
+                                                                    <i class="bi bi-arrow-down"></i>
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+
+                                                </div>
+
+                                                @if (stage.index == 0)
+                                                {
+                                                    <small class="text-primary">
+                                                        <i class="bi bi-info-circle"></i> This will be the first stage to process
+                                                    </small>
+                                                }
+                                            </div>
+                                        }
+
+                                        <div class="d-flex justify-content-between align-items-center mt-3">
+                                            <button type="button" class="btn btn-outline-success btn-sm" @onclick="AddStage">
+                                                <i class="bi bi-plus"></i> Add Stage
+                                            </button>
+
+                                            <div class="btn-group">
+                                                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <i class="bi bi-lightning"></i> Quick Setup
+                                                </button>
+                                                <ul class="dropdown-menu">
+                                                    <li>
+                                                        <button class="dropdown-item" type="button" @onclick='() => SetupTemplate("standard")'>
+                                                            Standard (Prod → Test → Dev)
+                                                        </button>
+                                                    </li>
+                                                    <li>
+                                                        <button class="dropdown-item" type="button" @onclick='() => SetupTemplate("simple")'>
+                                                            Simple (Prod → Dev)
+                                                        </button>
+                                                    </li>
+                                                    <li>
+                                                        <button class="dropdown-item" type="button" @onclick='() => SetupTemplate("gradual")'>
+                                                            Gradual (Prod 100→50→0)
+                                                        </button>
+                                                    </li>
+                                                </ul>
+                                            </div>
+                                        </div>
+
+                                        @if (archiveStages.Any())
+                                        {
+                                            <div class="mt-3 p-2 bg-light rounded">
+                                                <small class="text-muted">
+                                                    <strong>Preview:</strong>
+                                                    @string.Join(" → ", archiveStages.Select(s => $"{s.Name} ({s.CurrentPercentage}%→{s.TargetPercentage}%, wait {s.WaitHours}h)"))
+                                                </small>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
                             </div>
                         }
+
 
                         <div class="mb-3">
                             <label for="description" class="form-label">Description</label>
@@ -112,14 +250,137 @@
 </div>
 
 @code {
+    [Parameter] public Guid? ProjectId { get; set; }
+    private List<ArchiveStageModel> archiveStages = new();
+
     private CreateWorkflowRequest model = new();
     private List<MetadataItem> metadataItems = new() { new MetadataItem() };
     private bool isSubmitting = false;
+
+    private List<ProjectResponse>? projects;
+    private ProjectResponse? selectedProject;
+    private string selectedProjectId = "";
 
     public class MetadataItem
     {
         public string Key { get; set; } = "";
         public string Value { get; set; } = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Load projects for dropdown (only if not coming from specific project)
+        if (ProjectId == null)
+        {
+            try
+            {
+                projects = await ProjectApi.GetAllProjectsAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading projects: {ex.Message}");
+                projects = new List<ProjectResponse>();
+            }
+        }
+        else
+        {
+            // Load the specific project info
+            try
+            {
+                selectedProject = await ProjectApi.GetProjectAsync(ProjectId.Value);
+                model.ProjectId = ProjectId.Value;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading project: {ex.Message}");
+            }
+        }
+
+        InitializeArchiveStages();
+    }
+
+    private void InitializeArchiveStages()
+    {
+        if (model.WorkflowType == WorkflowType.ArchiveOnly && !archiveStages.Any())
+        {
+            archiveStages.Add(new ArchiveStageModel
+            {
+                Name = "Production",
+                CurrentPercentage = 100,
+                TargetPercentage = 0,
+                WaitHours = 24
+            });
+        }
+    }
+
+    private void AddStage()
+    {
+        archiveStages.Add(new ArchiveStageModel
+        {
+            Name = $"Stage {archiveStages.Count + 1}",
+            CurrentPercentage = 100,
+            TargetPercentage = 0,
+            WaitHours = 2
+        });
+    }
+
+    private void RemoveStage(ArchiveStageModel stage)
+    {
+        if (archiveStages.Count > 1)
+        {
+            archiveStages.Remove(stage);
+        }
+    }
+
+    private void MoveStageUp(int index)
+    {
+        if (index > 0)
+        {
+            var stage = archiveStages[index];
+            archiveStages.RemoveAt(index);
+            archiveStages.Insert(index - 1, stage);
+        }
+    }
+
+    private void MoveStageDown(int index)
+    {
+        if (index < archiveStages.Count - 1)
+        {
+            var stage = archiveStages[index];
+            archiveStages.RemoveAt(index);
+            archiveStages.Insert(index + 1, stage);
+        }
+    }
+
+    private void SetupTemplate(string template)
+    {
+        archiveStages.Clear();
+
+        switch (template)
+        {
+            case "standard":
+                archiveStages.AddRange(new[]
+                {
+                new ArchiveStageModel { Name = "Production", CurrentPercentage = 100, TargetPercentage = 0, WaitHours = 24 },
+                new ArchiveStageModel { Name = "Test", CurrentPercentage = 100, TargetPercentage = 0, WaitHours = 4 },
+                new ArchiveStageModel { Name = "Development", CurrentPercentage = 100, TargetPercentage = 0, WaitHours = 1 }
+            });
+                break;
+            case "simple":
+                archiveStages.AddRange(new[]
+                {
+                new ArchiveStageModel { Name = "Production", CurrentPercentage = 100, TargetPercentage = 0, WaitHours = 24 },
+                new ArchiveStageModel { Name = "Development", CurrentPercentage = 100, TargetPercentage = 0, WaitHours = 2 }
+            });
+                break;
+            case "gradual":
+                archiveStages.AddRange(new[]
+                {
+                new ArchiveStageModel { Name = "Production (Phase 1)", CurrentPercentage = 100, TargetPercentage = 50, WaitHours = 12 },
+                new ArchiveStageModel { Name = "Production (Phase 2)", CurrentPercentage = 50, TargetPercentage = 0, WaitHours = 24 }
+            });
+                break;
+        }
     }
 
     private void AddMetadata()
@@ -139,11 +400,34 @@
         try
         {
             // Convert metadata items to dictionary
-            model.Metadata = metadataItems
+             model.Metadata = metadataItems
                 .Where(m => !string.IsNullOrWhiteSpace(m.Key))
                 .ToDictionary(m => m.Key.Trim(), m => m.Value?.Trim() ?? "");
 
-            var workflow = await WorkflowApi.CreateWorkflowAsync(model);
+            if (model.WorkflowType == WorkflowType.ArchiveOnly && archiveStages.Any())
+            {
+                var stageConfig = System.Text.Json.JsonSerializer.Serialize(archiveStages);
+                model.Metadata["archiveStages"] = stageConfig;
+            }
+
+            // Set project ID if selected from dropdown
+            if (ProjectId == null && !string.IsNullOrEmpty(selectedProjectId) && Guid.TryParse(selectedProjectId, out var projectGuid))
+            {
+                model.ProjectId = projectGuid;
+            }
+
+            WorkflowResponse workflow;
+
+            // Create workflow in project or standalone
+            if (model.ProjectId.HasValue)
+            {
+                workflow = await ProjectApi.CreateWorkflowInProjectAsync(model.ProjectId.Value, model);
+            }
+            else
+            {
+                workflow = await WorkflowApi.CreateWorkflowAsync(model);
+            }
+
             Navigation.NavigateTo($"/workflows/{workflow.Id}");
         }
         catch (Exception ex)
@@ -159,6 +443,23 @@
 
     private void Cancel()
     {
-        Navigation.NavigateTo("/");
+        if (ProjectId.HasValue)
+        {
+            Navigation.NavigateTo($"/projects/{ProjectId}");
+        }
+        else
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+
+
+    public class ArchiveStageModel
+    {
+        public string Name { get; set; } = "";
+        public int CurrentPercentage { get; set; } = 100;
+        public int TargetPercentage { get; set; } = 0;
+        public double WaitHours { get; set; } = 24;
     }
 }

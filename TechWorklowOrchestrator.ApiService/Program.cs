@@ -18,6 +18,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
 builder.Services.AddSingleton<IWorkflowRepository, InMemoryWorkflowRepository>();
+builder.Services.AddSingleton<IProjectService, ProjectService>();
 
 var app = builder.Build();
 
