@@ -90,6 +90,12 @@ namespace TechWorklowOrchestrator.ApiService.Service
                 existingWorkflow.WaitDuration = workflow.WaitDuration;
                 existingWorkflow.ErrorMessage = workflow.ErrorMessage;
                 existingWorkflow.IsCompleted = workflow.IsCompleted;
+
+                // Update TransformToDefault specific properties
+                existingWorkflow.TransformStartedAt = workflow.TransformStartedAt;
+
+                // Update ArchiveOnly specific properties
+                existingWorkflow.ArchiveConfiguration = workflow.ArchiveConfiguration;
             }
         }
 

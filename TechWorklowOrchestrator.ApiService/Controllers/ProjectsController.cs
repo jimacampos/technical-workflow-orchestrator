@@ -275,20 +275,21 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return NotFound($"Workflow with ID {workflowId} not found");
                 }
 
-                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}, Type: {workflow.WorkflowType}");
                 Console.WriteLine($"Current IsCompleted: {workflow.IsCompleted}");
-                Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
 
-                if (workflow.ArchiveConfiguration != null)
-                {
-                    Console.WriteLine($"WorkflowStartedAt before start: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
-                    Console.WriteLine($"Current stage: {workflow.ArchiveConfiguration.CurrentStage?.Name}");
-                    Console.WriteLine($"Current stage status: {workflow.ArchiveConfiguration.CurrentStage?.Status}");
-                }
-
-                // Create and start the workflow engine
+                // Handle different workflow types
                 if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
                 {
+                    Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
+
+                    if (workflow.ArchiveConfiguration != null)
+                    {
+                        Console.WriteLine($"WorkflowStartedAt before start: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
+                        Console.WriteLine($"Current stage: {workflow.ArchiveConfiguration.CurrentStage?.Name}");
+                        Console.WriteLine($"Current stage status: {workflow.ArchiveConfiguration.CurrentStage?.Status}");
+                    }
+
                     var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
                     Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
 
@@ -303,11 +304,43 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                         Console.WriteLine($"StartAsync completed, new state: {archiveWorkflow.CurrentState}");
                         Console.WriteLine($"WorkflowStartedAt after start: {workflow.ArchiveConfiguration?.WorkflowStartedAt}");
                         Console.WriteLine($"Current stage status after start: {workflow.ArchiveConfiguration?.CurrentStage?.Status}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("ArchiveOnly workflow changes persisted");
                     }
                     else
                     {
                         Console.WriteLine("CanStartAsync returned false");
                         return BadRequest("Workflow cannot be started - check configuration and traffic percentages");
+                    }
+                }
+                else if (workflow.WorkflowType == WorkflowType.TransformToDefault)
+                {
+                    Console.WriteLine($"TransformStartedAt before start: {workflow.TransformStartedAt}");
+
+                    var transformWorkflow = new TransformToDefaultWorkflow(workflow);
+                    Console.WriteLine($"Created TransformToDefaultWorkflow, current state: {transformWorkflow.CurrentState}");
+
+                    // Check if workflow can be started
+                    if (await transformWorkflow.CanStartAsync())
+                    {
+                        Console.WriteLine("TransformToDefault CanStartAsync returned true, calling StartAsync...");
+
+                        // Start the workflow
+                        await transformWorkflow.StartAsync();
+
+                        Console.WriteLine($"TransformToDefault StartAsync completed, new state: {transformWorkflow.CurrentState}");
+                        Console.WriteLine($"TransformStartedAt after start: {workflow.TransformStartedAt}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("TransformToDefault workflow changes persisted");
+                    }
+                    else
+                    {
+                        Console.WriteLine("TransformToDefault CanStartAsync returned false");
+                        return BadRequest("TransformToDefault workflow cannot be started - check configuration");
                     }
                 }
                 else
@@ -342,7 +375,7 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return NotFound($"Workflow with ID {workflowId} not found in project {projectId}");
                 }
 
-                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}, Type: {workflow.WorkflowType}");
                 Console.WriteLine($"Current derived state: {DeriveCurrentState(workflow)}");
 
                 // Handle manual progression based on workflow type
@@ -362,6 +395,10 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
                         Console.WriteLine($"ProceedAsync completed, new state: {archiveWorkflow.CurrentState}");
                         Console.WriteLine($"New derived state: {DeriveCurrentState(workflow)}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("ArchiveOnly workflow changes persisted");
                     }
                     else
                     {
@@ -369,9 +406,47 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                         return BadRequest($"Workflow cannot proceed - current state: {archiveWorkflow.CurrentState}");
                     }
                 }
-                else
+
+                else if (workflow.WorkflowType == WorkflowType.TransformToDefault)
                 {
-                    return BadRequest($"Manual progression not supported for workflow type {workflow.WorkflowType}");
+                    Console.WriteLine($"=== Controller TransformToDefault Proceed Debug ===");
+                    Console.WriteLine($"TransformStartedAt before proceed: {workflow.TransformStartedAt}");
+                    Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
+                    Console.WriteLine($"ErrorMessage: '{workflow.ErrorMessage}'");
+
+                    var transformWorkflow = new TransformToDefaultWorkflow(workflow);
+                    Console.WriteLine($"Created TransformToDefaultWorkflow, current state: {transformWorkflow.CurrentState}");
+                    Console.WriteLine($"Expected state for proceed: {WorkflowState.AwaitingUserAction}");
+
+                    // Check if workflow can proceed
+                    if (transformWorkflow.CanProceed())
+                    {
+                        Console.WriteLine($"TransformToDefault CanProceed returned true, calling ProceedAsync...");
+                        Console.WriteLine($"Action description: {transformWorkflow.GetCurrentActionDescription()}");
+
+                        // Proceed with the workflow
+                        await transformWorkflow.ProceedAsync();
+
+                        Console.WriteLine($"TransformToDefault ProceedAsync completed, new state: {transformWorkflow.CurrentState}");
+                        Console.WriteLine($"IsCompleted after proceed: {workflow.IsCompleted}");
+                        Console.WriteLine($"New derived state: {DeriveCurrentState(workflow)}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("TransformToDefault workflow changes persisted");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"=== CanProceed returned FALSE - Debug Info ===");
+                        Console.WriteLine($"Current state: {transformWorkflow.CurrentState}");
+                        Console.WriteLine($"Expected state: {WorkflowState.AwaitingUserAction}");
+                        Console.WriteLine($"State comparison: {transformWorkflow.CurrentState} == {WorkflowState.AwaitingUserAction} = {transformWorkflow.CurrentState == WorkflowState.AwaitingUserAction}");
+                        Console.WriteLine($"DetermineInitialState would return: {DetermineInitialStateForDebug(workflow)}");
+                        Console.WriteLine($"=== End CanProceed Debug ===");
+
+                        return BadRequest($"TransformToDefault workflow cannot proceed - current state: {transformWorkflow.CurrentState}");
+                    }
+                    Console.WriteLine($"=== End Controller TransformToDefault Proceed Debug ===");
                 }
 
                 Console.WriteLine("=== Workflow proceed completed, returning response ===");
@@ -401,10 +476,9 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
         private string DeriveCurrentState(ConfigCleanupContext workflow)
         {
-            Console.WriteLine($"=== DeriveCurrentState Debug ===");
+            Console.WriteLine($"=== DeriveCurrentState Debug for {workflow.WorkflowType} ===");
             Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
             Console.WriteLine($"ErrorMessage: {workflow.ErrorMessage}");
-            Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
 
             if (workflow.IsCompleted)
             {
@@ -417,6 +491,24 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 Console.WriteLine("Returning: Failed");
                 return "Failed";
             }
+
+            // Handle different workflow types
+            if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
+            {
+                return DeriveArchiveOnlyState(workflow);
+            }
+            else if (workflow.WorkflowType == WorkflowType.TransformToDefault)
+            {
+                return DeriveTransformToDefaultState(workflow);
+            }
+
+            Console.WriteLine("Returning: Created (default)");
+            return "Created";
+        }
+
+        private string DeriveArchiveOnlyState(ConfigCleanupContext workflow)
+        {
+            Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
 
             if (workflow.ArchiveConfiguration == null)
             {
@@ -458,9 +550,41 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             };
 
             Console.WriteLine($"Final result: {result}");
-            Console.WriteLine($"=== End DeriveCurrentState Debug ===");
-
             return result;
+        }
+
+        private string DeriveTransformToDefaultState(ConfigCleanupContext workflow)
+        {
+            Console.WriteLine("=== DeriveTransformToDefaultState Debug ===");
+            Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
+            Console.WriteLine($"ErrorMessage: '{workflow.ErrorMessage}'");
+            Console.WriteLine($"HasError: {!string.IsNullOrEmpty(workflow.ErrorMessage)}");
+            Console.WriteLine($"TransformStartedAt: {workflow.TransformStartedAt}");
+            Console.WriteLine($"HasBeenStarted: {workflow.TransformStartedAt.HasValue}");
+
+            // For TransformToDefault workflows:
+            // - If not started (TransformStartedAt is null), show as "Created" -> UI shows "Start" button
+            // - If started but not completed, show as "AwaitingUserAction" -> UI shows "Proceed" button
+
+            if (!workflow.IsCompleted && string.IsNullOrEmpty(workflow.ErrorMessage))
+            {
+                if (workflow.TransformStartedAt.HasValue)
+                {
+                    Console.WriteLine("Returning: AwaitingUserAction (started, ready to proceed)");
+                    Console.WriteLine("=== End DeriveTransformToDefaultState Debug ===");
+                    return "AwaitingUserAction";
+                }
+                else
+                {
+                    Console.WriteLine("Returning: Created (not started yet)");
+                    Console.WriteLine("=== End DeriveTransformToDefaultState Debug ===");
+                    return "Created";
+                }
+            }
+
+            Console.WriteLine("Returning: Created (default for completed/error case)");
+            Console.WriteLine("=== End DeriveTransformToDefaultState Debug ===");
+            return "Created";
         }
 
         // Helper method to determine if waiting or ready for user action
@@ -486,21 +610,75 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
         private string GetManualActionDescription(ConfigCleanupContext workflow)
         {
-            if (workflow.ArchiveConfiguration == null) return "";
-
-            var currentStage = workflow.ArchiveConfiguration.CurrentStage;
-            if (currentStage == null) return "Ready to Archive";
-
-            // Determine what action is needed based on stage status
-            return currentStage.Status switch
+            if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
             {
-                WorkflowStageStatus.Pending when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
-                    $"Click to start rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
-                WorkflowStageStatus.Waiting when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
-                    $"Click to continue rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
-                _ => "Click to proceed to next step"
-            };
+                if (workflow.ArchiveConfiguration == null) return "";
+
+                var currentStage = workflow.ArchiveConfiguration.CurrentStage;
+                if (currentStage == null) return "Ready to Archive";
+
+                // Determine what action is needed based on stage status
+                return currentStage.Status switch
+                {
+                    WorkflowStageStatus.Pending when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
+                        $"Click to start rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
+                    WorkflowStageStatus.Waiting when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
+                        $"Click to continue rolldown from {currentStage.CurrentAllocationPercentage}% to {currentStage.TargetAllocationPercentage}%",
+                    _ => "Click to proceed to next step"
+                };
+            }
+            else if (workflow.WorkflowType == WorkflowType.TransformToDefault)
+            {
+                if (workflow.IsCompleted)
+                    return "";
+
+                if (!string.IsNullOrEmpty(workflow.ErrorMessage))
+                    return "Transform failed - check error details";
+
+                // Check if workflow has been started
+                if (workflow.TransformStartedAt.HasValue)
+                {
+                    return $"Click to transform '{workflow.ConfigurationName}' to default values";
+                }
+                else
+                {
+                    return $"Click to start transformation of '{workflow.ConfigurationName}' to default values";
+                }
+            }
+
+            return "";
         }
 
+        private string DetermineInitialStateForDebug(ConfigCleanupContext context)
+        {
+            Console.WriteLine($"=== Debug DetermineInitialState ===");
+            Console.WriteLine($"IsCompleted: {context.IsCompleted}");
+            Console.WriteLine($"ErrorMessage: '{context.ErrorMessage}'");
+            Console.WriteLine($"HasError: {!string.IsNullOrEmpty(context.ErrorMessage)}");
+            Console.WriteLine($"TransformStartedAt: {context.TransformStartedAt}");
+            Console.WriteLine($"HasBeenStarted: {context.TransformStartedAt.HasValue}");
+
+            if (context.IsCompleted)
+            {
+                Console.WriteLine("Would return: Completed");
+                return "Completed";
+            }
+
+            if (!string.IsNullOrEmpty(context.ErrorMessage))
+            {
+                Console.WriteLine("Would return: Failed");
+                return "Failed";
+            }
+
+            // Check if workflow has been started
+            if (context.TransformStartedAt.HasValue)
+            {
+                Console.WriteLine("Would return: AwaitingUserAction (already started)");
+                return "AwaitingUserAction";
+            }
+
+            Console.WriteLine("Would return: Created");
+            return "Created";
+        }
     }
 }

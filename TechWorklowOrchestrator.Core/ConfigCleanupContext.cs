@@ -21,6 +21,9 @@ namespace TechWorklowOrchestrator.Core
         // New stage-based configuration for ArchiveOnly workflows
         public ArchiveWorkflowConfiguration? ArchiveConfiguration { get; set; }
 
+        // Track when TransformToDefault workflows are started
+        public DateTime? TransformStartedAt { get; set; }
+
         // Helper method to initialize archive configuration
         public void InitializeArchiveConfiguration(List<(string stageName, int currentPercentage, int targetPercentage, TimeSpan? waitDuration)> stageDefinitions)
         {
@@ -46,6 +49,14 @@ namespace TechWorklowOrchestrator.Core
                 return ArchiveConfiguration.OverallProgress;
             }
 
+            // For TransformToDefault workflows
+            if (WorkflowType == WorkflowType.TransformToDefault)
+            {
+                if (IsCompleted) return 100.0;
+                if (TransformStartedAt.HasValue) return 50.0; // Started but not completed
+                return 0.0; // Not started
+            }
+
             // Fallback for other workflow types or legacy archive workflows
             return IsCompleted ? 100.0 : 0.0;
         }
@@ -56,6 +67,15 @@ namespace TechWorklowOrchestrator.Core
             if (WorkflowType == WorkflowType.ArchiveOnly && ArchiveConfiguration != null)
             {
                 return ArchiveConfiguration.GetStatusDescription();
+            }
+
+            // For TransformToDefault workflows
+            if (WorkflowType == WorkflowType.TransformToDefault)
+            {
+                if (IsCompleted) return "✅ Configuration transformed to defaults";
+                if (!string.IsNullOrEmpty(ErrorMessage)) return $"❌ Failed: {ErrorMessage}";
+                if (TransformStartedAt.HasValue) return "⏳ Ready to transform to default values";
+                return "Ready to start transformation";
             }
 
             // Fallback for other workflow types
