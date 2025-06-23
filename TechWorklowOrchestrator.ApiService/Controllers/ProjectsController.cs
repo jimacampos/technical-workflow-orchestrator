@@ -66,38 +66,20 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 // Create the basic workflow context
                 var workflow = _projectService.CreateWorkflow(projectId, request.ConfigurationName, request.WorkflowType);
 
-                // If it's an ArchiveOnly workflow and has stage configuration, parse and initialize it
-                if (request.WorkflowType == WorkflowType.ArchiveOnly &&
-                    request.Metadata != null &&
-                    request.Metadata.ContainsKey("archiveStages"))
+                // Handle workflow type-specific initialization
+                switch (request.WorkflowType)
                 {
-                    try
-                    {
-                        var stageConfigJson = request.Metadata["archiveStages"];
-                        var stageModels = System.Text.Json.JsonSerializer.Deserialize<List<ArchiveStageModel>>(stageConfigJson);
+                    case WorkflowType.ArchiveOnly:
+                        InitializeArchiveOnlyWorkflow(workflow, request);
+                        break;
 
-                        if (stageModels?.Any() == true)
-                        {
-                            // Convert from UI models to workflow models
-                            var stageDefinitions = stageModels.Select(s => (
-                                stageName: s.Name,
-                                currentPercentage: s.CurrentPercentage,
-                                targetPercentage: s.TargetPercentage,
-                                // waitDuration: (TimeSpan?)TimeSpan.FromHours(s.WaitHours)
-                                waitDuration: (TimeSpan?)TimeSpan.FromMinutes(1) // Default to 1 minute for simplicity, can be adjusted
-                            )).ToList();
+                    case WorkflowType.TransformToDefault:
+                        InitializeTransformToDefaultWorkflow(workflow, request);
+                        break;
 
-                            // Initialize the archive configuration
-                            workflow.InitializeArchiveConfiguration(stageDefinitions);
-
-                            Console.WriteLine($"Initialized archive workflow with {stageModels.Count} stages");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error parsing stage configuration: {ex.Message}");
-                        // Continue with default configuration - the workflow will create its own
-                    }
+                    case WorkflowType.CodeFirst:
+                        // CodeFirst workflow initialization can be added here later
+                        break;
                 }
 
                 return CreatedAtAction(nameof(GetWorkflow), new { projectId, workflowId = workflow.Id }, workflow);
@@ -105,6 +87,56 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             catch (ArgumentException ex)
             {
                 return NotFound(ex.Message);
+            }
+        }
+
+        private void InitializeArchiveOnlyWorkflow(ConfigCleanupContext workflow, CreateWorkflowRequest request)
+        {
+            if (request.Metadata != null && request.Metadata.ContainsKey("archiveStages"))
+            {
+                try
+                {
+                    var stageConfigJson = request.Metadata["archiveStages"];
+                    var stageModels = System.Text.Json.JsonSerializer.Deserialize<List<ArchiveStageModel>>(stageConfigJson);
+
+                    if (stageModels?.Any() == true)
+                    {
+                        // Convert from UI models to workflow models
+                        var stageDefinitions = stageModels.Select(s => (
+                            stageName: s.Name,
+                            currentPercentage: s.CurrentPercentage,
+                            targetPercentage: s.TargetPercentage,
+                            waitDuration: (TimeSpan?)TimeSpan.FromMinutes(1) // Default to 1 minute for demo
+                        )).ToList();
+
+                        // Initialize the archive configuration
+                        workflow.InitializeArchiveConfiguration(stageDefinitions);
+
+                        Console.WriteLine($"Initialized archive workflow with {stageModels.Count} stages");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error parsing stage configuration: {ex.Message}");
+                    // Continue with default configuration
+                }
+            }
+        }
+
+        private void InitializeTransformToDefaultWorkflow(ConfigCleanupContext workflow, CreateWorkflowRequest request)
+        {
+            // TransformToDefault workflows don't need complex initialization
+            // They're ready to run immediately after creation
+            Console.WriteLine($"Initialized TransformToDefault workflow for {workflow.ConfigurationName}");
+
+            // If there are any transform-specific metadata in the future, handle them here
+            if (request.Metadata != null)
+            {
+                // Example: transformation rules, target default values, etc.
+                foreach (var metadata in request.Metadata)
+                {
+                    Console.WriteLine($"TransformToDefault metadata - {metadata.Key}: {metadata.Value}");
+                }
             }
         }
 
@@ -148,11 +180,11 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 ProjectName = GetProjectName(workflow.ProjectId),
                 Progress = new
                 {
-                    PercentComplete = workflow.GetOverallProgress(), // Use actual progress calculation
-                    CurrentStep = workflow.ArchiveConfiguration?.CurrentStageIndex + 1 ?? 1,
-                    TotalSteps = workflow.ArchiveConfiguration?.Stages.Count ?? 1,
+                    PercentComplete = workflow.GetOverallProgress(),
+                    CurrentStep = GetCurrentStep(workflow),
+                    TotalSteps = GetTotalSteps(workflow),
                     CurrentStepDescription = workflow.GetCurrentStatusDescription(),
-                    RequiresManualAction = DeriveCurrentState(workflow) == "AwaitingUserAction", // Check if awaiting user action
+                    RequiresManualAction = DeriveCurrentState(workflow) == "AwaitingUserAction",
                     ManualActionDescription = DeriveCurrentState(workflow) == "AwaitingUserAction" ? GetManualActionDescription(workflow) : ""
                 },
                 Metadata = new Dictionary<string, string>()
@@ -171,8 +203,50 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             // Build the metadata dictionary
             var metadata = new Dictionary<string, string>();
 
-            // Add stage progress for ArchiveOnly workflows
-            if (workflow.WorkflowType == WorkflowType.ArchiveOnly && workflow.ArchiveConfiguration != null)
+            // Add workflow type-specific metadata
+            switch (workflow.WorkflowType)
+            {
+                case WorkflowType.ArchiveOnly:
+                    AddArchiveOnlyMetadata(workflow, metadata);
+                    break;
+
+                case WorkflowType.TransformToDefault:
+                    AddTransformToDefaultMetadata(workflow, metadata);
+                    break;
+            }
+
+            // Convert ConfigCleanupContext to a response that matches WorkflowResponse structure
+            var response = new
+            {
+                Id = workflow.Id,
+                ConfigurationName = workflow.ConfigurationName,
+                WorkflowType = workflow.WorkflowType,
+                CurrentState = DeriveCurrentState(workflow),
+                Status = workflow.GetCurrentStatusDescription(),
+                CreatedAt = workflow.CreatedAt,
+                LastUpdated = (DateTime?)null,
+                ErrorMessage = workflow.ErrorMessage,
+                ProjectId = workflow.ProjectId,
+                ProjectName = GetProjectName(workflow.ProjectId),
+                Progress = new
+                {
+                    PercentComplete = workflow.GetOverallProgress(),
+                    CurrentStep = GetCurrentStep(workflow),
+                    TotalSteps = GetTotalSteps(workflow),
+                    CurrentStepDescription = workflow.GetCurrentStatusDescription(),
+                    RequiresManualAction = DeriveRequiresManualAction(workflow),
+                    ManualActionDescription = GetManualActionDescription(workflow)
+                },
+                Metadata = metadata
+            };
+
+            Console.WriteLine($"Returning response with {metadata.Count} metadata items");
+            return Ok(response);
+        }
+
+        private void AddArchiveOnlyMetadata(ConfigCleanupContext workflow, Dictionary<string, string> metadata)
+        {
+            if (workflow.ArchiveConfiguration != null)
             {
                 try
                 {
@@ -201,38 +275,21 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     Console.WriteLine($"Error creating stage progress: {ex.Message}");
                 }
             }
-            else
+        }
+
+        private void AddTransformToDefaultMetadata(ConfigCleanupContext workflow, Dictionary<string, string> metadata)
+        {
+            // Add transform-specific metadata
+            metadata["workflowType"] = "TransformToDefault";
+            metadata["isImmediate"] = "true";
+
+            // If there are transformation details stored in the workflow context, add them
+            if (!string.IsNullOrEmpty(workflow.ErrorMessage))
             {
-                Console.WriteLine($"Workflow type: {workflow.WorkflowType}, ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
+                metadata["lastError"] = workflow.ErrorMessage;
             }
 
-            // Convert ConfigCleanupContext to a response that matches WorkflowResponse structure
-            var response = new
-            {
-                Id = workflow.Id,
-                ConfigurationName = workflow.ConfigurationName,
-                WorkflowType = workflow.WorkflowType,
-                CurrentState = DeriveCurrentState(workflow),
-                Status = workflow.GetCurrentStatusDescription(),
-                CreatedAt = workflow.CreatedAt,
-                LastUpdated = (DateTime?)null,
-                ErrorMessage = workflow.ErrorMessage,
-                ProjectId = workflow.ProjectId,
-                ProjectName = GetProjectName(workflow.ProjectId),
-                Progress = new
-                {
-                    PercentComplete = workflow.GetOverallProgress(),
-                    CurrentStep = workflow.ArchiveConfiguration?.CurrentStageIndex + 1 ?? 1,
-                    TotalSteps = workflow.ArchiveConfiguration?.Stages.Count ?? 1,
-                    CurrentStepDescription = workflow.GetCurrentStatusDescription(),
-                    RequiresManualAction = false,
-                    ManualActionDescription = ""
-                },
-                Metadata = metadata
-            };
-
-            Console.WriteLine($"Returning response with {metadata.Count} metadata items");
-            return Ok(response);
+            Console.WriteLine("Added TransformToDefault metadata");
         }
 
         [HttpGet("workflows/summary")]
@@ -249,12 +306,12 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 }),
                 CompletedWorkflows = allWorkflows.Count(w => w.IsCompleted),
                 FailedWorkflows = allWorkflows.Count(w => !string.IsNullOrEmpty(w.ErrorMessage)),
-                AwaitingManualAction = allWorkflows.Count(w => DeriveCurrentState(w) == "AwaitingUserAction"), // Fixed calculation
+                AwaitingManualAction = allWorkflows.Count(w => DeriveCurrentState(w) == "AwaitingUserAction"),
                 ByType = allWorkflows
                     .GroupBy(w => w.WorkflowType)
                     .ToDictionary(g => g.Key, g => g.Count()),
                 ByState = allWorkflows
-                    .GroupBy(w => DeriveCurrentState(w)) // Use DeriveCurrentState instead of simple mapping
+                    .GroupBy(w => DeriveCurrentState(w))
                     .ToDictionary(g => g.Key, g => g.Count())
             };
 
@@ -275,44 +332,24 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return NotFound($"Workflow with ID {workflowId} not found");
                 }
 
-                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
-                Console.WriteLine($"Current IsCompleted: {workflow.IsCompleted}");
-                Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}, Type: {workflow.WorkflowType}");
 
-                if (workflow.ArchiveConfiguration != null)
+                // Create and start the appropriate workflow engine
+                switch (workflow.WorkflowType)
                 {
-                    Console.WriteLine($"WorkflowStartedAt before start: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
-                    Console.WriteLine($"Current stage: {workflow.ArchiveConfiguration.CurrentStage?.Name}");
-                    Console.WriteLine($"Current stage status: {workflow.ArchiveConfiguration.CurrentStage?.Status}");
-                }
+                    case WorkflowType.ArchiveOnly:
+                        await StartArchiveOnlyWorkflow(workflow);
+                        break;
 
-                // Create and start the workflow engine
-                if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
-                {
-                    var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
-                    Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
+                    case WorkflowType.TransformToDefault:
+                        await StartTransformToDefaultWorkflow(workflow);
+                        break;
 
-                    // Check if workflow can be started
-                    if (await archiveWorkflow.CanStartAsync())
-                    {
-                        Console.WriteLine("CanStartAsync returned true, calling StartAsync...");
+                    case WorkflowType.CodeFirst:
+                        return BadRequest($"Workflow type {workflow.WorkflowType} is not implemented yet");
 
-                        // Start the workflow
-                        await archiveWorkflow.StartAsync();
-
-                        Console.WriteLine($"StartAsync completed, new state: {archiveWorkflow.CurrentState}");
-                        Console.WriteLine($"WorkflowStartedAt after start: {workflow.ArchiveConfiguration?.WorkflowStartedAt}");
-                        Console.WriteLine($"Current stage status after start: {workflow.ArchiveConfiguration?.CurrentStage?.Status}");
-                    }
-                    else
-                    {
-                        Console.WriteLine("CanStartAsync returned false");
-                        return BadRequest("Workflow cannot be started - check configuration and traffic percentages");
-                    }
-                }
-                else
-                {
-                    return BadRequest($"Workflow type {workflow.WorkflowType} is not supported yet");
+                    default:
+                        return BadRequest($"Unknown workflow type {workflow.WorkflowType}");
                 }
 
                 Console.WriteLine("=== Workflow start completed, returning response ===");
@@ -325,6 +362,42 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 Console.WriteLine($"Error starting workflow: {ex.Message}");
                 Console.WriteLine($"Stack trace: {ex.StackTrace}");
                 return StatusCode(500, $"Error starting workflow: {ex.Message}");
+            }
+        }
+
+        private async Task StartArchiveOnlyWorkflow(ConfigCleanupContext workflow)
+        {
+            var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
+            Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
+
+            if (await archiveWorkflow.CanStartAsync())
+            {
+                Console.WriteLine("CanStartAsync returned true, calling StartAsync...");
+                await archiveWorkflow.StartAsync();
+                Console.WriteLine($"StartAsync completed, new state: {archiveWorkflow.CurrentState}");
+            }
+            else
+            {
+                Console.WriteLine("CanStartAsync returned false");
+                throw new InvalidOperationException("Archive workflow cannot be started - check configuration and traffic percentages");
+            }
+        }
+
+        private async Task StartTransformToDefaultWorkflow(ConfigCleanupContext workflow)
+        {
+            var transformWorkflow = new TransformToDefaultWorkflow(workflow);
+            Console.WriteLine($"Created TransformToDefaultWorkflow, current state: {transformWorkflow.CurrentState}");
+
+            if (await transformWorkflow.CanStartAsync())
+            {
+                Console.WriteLine("CanStartAsync returned true, calling StartAsync...");
+                await transformWorkflow.StartAsync();
+                Console.WriteLine($"StartAsync completed, new state: {transformWorkflow.CurrentState}");
+            }
+            else
+            {
+                Console.WriteLine("CanStartAsync returned false");
+                throw new InvalidOperationException("Transform workflow cannot be started - check configuration");
             }
         }
 
@@ -342,36 +415,23 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return NotFound($"Workflow with ID {workflowId} not found in project {projectId}");
                 }
 
-                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}");
-                Console.WriteLine($"Current derived state: {DeriveCurrentState(workflow)}");
+                Console.WriteLine($"Found workflow: {workflow.ConfigurationName}, Type: {workflow.WorkflowType}");
 
                 // Handle manual progression based on workflow type
-                if (workflow.WorkflowType == WorkflowType.ArchiveOnly)
+                switch (workflow.WorkflowType)
                 {
-                    var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
-                    Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
+                    case WorkflowType.ArchiveOnly:
+                        await ProceedArchiveOnlyWorkflow(workflow);
+                        break;
 
-                    // Check if workflow can proceed
-                    if (archiveWorkflow.CanProceed())
-                    {
-                        Console.WriteLine($"CanProceed returned true, calling ProceedAsync...");
-                        Console.WriteLine($"Action description: {archiveWorkflow.GetCurrentActionDescription()}");
+                    case WorkflowType.TransformToDefault:
+                        return BadRequest("TransformToDefault workflows don't support manual progression - they complete automatically");
 
-                        // Proceed with the workflow
-                        await archiveWorkflow.ProceedAsync();
+                    case WorkflowType.CodeFirst:
+                        return BadRequest($"Manual progression not implemented for workflow type {workflow.WorkflowType}");
 
-                        Console.WriteLine($"ProceedAsync completed, new state: {archiveWorkflow.CurrentState}");
-                        Console.WriteLine($"New derived state: {DeriveCurrentState(workflow)}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"CanProceed returned false - current state: {archiveWorkflow.CurrentState}");
-                        return BadRequest($"Workflow cannot proceed - current state: {archiveWorkflow.CurrentState}");
-                    }
-                }
-                else
-                {
-                    return BadRequest($"Manual progression not supported for workflow type {workflow.WorkflowType}");
+                    default:
+                        return BadRequest($"Unknown workflow type {workflow.WorkflowType}");
                 }
 
                 Console.WriteLine("=== Workflow proceed completed, returning response ===");
@@ -392,6 +452,58 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             }
         }
 
+        private async Task ProceedArchiveOnlyWorkflow(ConfigCleanupContext workflow)
+        {
+            var archiveWorkflow = new ArchiveOnlyWorkflow(workflow);
+            Console.WriteLine($"Created ArchiveOnlyWorkflow, current state: {archiveWorkflow.CurrentState}");
+
+            if (archiveWorkflow.CanProceed())
+            {
+                Console.WriteLine($"CanProceed returned true, calling ProceedAsync...");
+                Console.WriteLine($"Action description: {archiveWorkflow.GetCurrentActionDescription()}");
+
+                await archiveWorkflow.ProceedAsync();
+
+                Console.WriteLine($"ProceedAsync completed, new state: {archiveWorkflow.CurrentState}");
+            }
+            else
+            {
+                Console.WriteLine($"CanProceed returned false - current state: {archiveWorkflow.CurrentState}");
+                throw new InvalidOperationException($"Workflow cannot proceed - current state: {archiveWorkflow.CurrentState}");
+            }
+        }
+
+        // Helper methods for workflow-agnostic operations
+        private int GetCurrentStep(ConfigCleanupContext workflow)
+        {
+            return workflow.WorkflowType switch
+            {
+                WorkflowType.ArchiveOnly => workflow.ArchiveConfiguration?.CurrentStageIndex + 1 ?? 1,
+                WorkflowType.TransformToDefault => workflow.IsCompleted ? 1 : 1,
+                _ => 1
+            };
+        }
+
+        private int GetTotalSteps(ConfigCleanupContext workflow)
+        {
+            return workflow.WorkflowType switch
+            {
+                WorkflowType.ArchiveOnly => workflow.ArchiveConfiguration?.Stages.Count ?? 1,
+                WorkflowType.TransformToDefault => 1,
+                _ => 1
+            };
+        }
+
+        private bool DeriveRequiresManualAction(ConfigCleanupContext workflow)
+        {
+            return workflow.WorkflowType switch
+            {
+                WorkflowType.ArchiveOnly => DeriveCurrentState(workflow) == "AwaitingUserAction",
+                WorkflowType.TransformToDefault => !workflow.IsCompleted && string.IsNullOrEmpty(workflow.ErrorMessage),
+                _ => false
+            };
+        }
+
         private string? GetProjectName(Guid? projectId)
         {
             if (!projectId.HasValue) return null;
@@ -401,10 +513,9 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
         private string DeriveCurrentState(ConfigCleanupContext workflow)
         {
-            Console.WriteLine($"=== DeriveCurrentState Debug ===");
+            Console.WriteLine($"=== DeriveCurrentState Debug for {workflow.WorkflowType} ===");
             Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
             Console.WriteLine($"ErrorMessage: {workflow.ErrorMessage}");
-            Console.WriteLine($"ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
 
             if (workflow.IsCompleted)
             {
@@ -418,14 +529,22 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 return "Failed";
             }
 
+            // Handle workflow type-specific state derivation
+            return workflow.WorkflowType switch
+            {
+                WorkflowType.ArchiveOnly => DeriveArchiveOnlyState(workflow),
+                WorkflowType.TransformToDefault => DeriveTransformToDefaultState(workflow),
+                _ => "Created"
+            };
+        }
+
+        private string DeriveArchiveOnlyState(ConfigCleanupContext workflow)
+        {
             if (workflow.ArchiveConfiguration == null)
             {
                 Console.WriteLine("Returning: Created (no config)");
                 return "Created";
             }
-
-            Console.WriteLine($"WorkflowStartedAt: {workflow.ArchiveConfiguration.WorkflowStartedAt}");
-            Console.WriteLine($"WorkflowStartedAt.HasValue: {workflow.ArchiveConfiguration.WorkflowStartedAt.HasValue}");
 
             // Check if workflow has been started
             if (!workflow.ArchiveConfiguration.WorkflowStartedAt.HasValue)
@@ -435,32 +554,46 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             }
 
             var currentStage = workflow.ArchiveConfiguration.CurrentStage;
-            Console.WriteLine($"CurrentStage is null: {currentStage == null}");
-
             if (currentStage == null)
             {
                 Console.WriteLine("Returning: Completed (no current stage)");
-                return "Completed"; // No more stages
+                return "Completed";
             }
 
-            Console.WriteLine($"CurrentStage.Name: {currentStage.Name}");
             Console.WriteLine($"CurrentStage.Status: {currentStage.Status}");
 
-            // Determine state based on current stage status
             var result = currentStage.Status switch
             {
-                WorkflowStageStatus.Pending => "AwaitingUserAction", // Ready to start this stage
-                WorkflowStageStatus.ReducingTraffic => "InProgress", // Currently reducing traffic
-                WorkflowStageStatus.Waiting => DeriveWaitingState(currentStage), // Check if still waiting or ready for next action
-                WorkflowStageStatus.Completed => "AwaitingUserAction", // Stage done, ready for next action
+                WorkflowStageStatus.Pending => "AwaitingUserAction",
+                WorkflowStageStatus.ReducingTraffic => "InProgress",
+                WorkflowStageStatus.Waiting => DeriveWaitingState(currentStage),
+                WorkflowStageStatus.Completed => "AwaitingUserAction",
                 WorkflowStageStatus.Failed => "Failed",
                 _ => "Created"
             };
 
             Console.WriteLine($"Final result: {result}");
-            Console.WriteLine($"=== End DeriveCurrentState Debug ===");
-
             return result;
+        }
+
+        private string DeriveTransformToDefaultState(ConfigCleanupContext workflow)
+        {
+            // TransformToDefault workflows are simple:
+            // - Created: Just created, ready to start
+            // - InProgress: Currently transforming (very brief)
+            // - Completed: Done
+            // - Failed: Error occurred
+
+            // Since TransformToDefault is immediate, if it's not completed and has no error,
+            // it's ready to start
+            if (!workflow.IsCompleted && string.IsNullOrEmpty(workflow.ErrorMessage))
+            {
+                Console.WriteLine("Returning: AwaitingUserAction (ready to transform)");
+                return "AwaitingUserAction";
+            }
+
+            Console.WriteLine("Returning: Created (default for TransformToDefault)");
+            return "Created";
         }
 
         // Helper method to determine if waiting or ready for user action
@@ -486,12 +619,21 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
         private string GetManualActionDescription(ConfigCleanupContext workflow)
         {
+            return workflow.WorkflowType switch
+            {
+                WorkflowType.ArchiveOnly => GetArchiveOnlyActionDescription(workflow),
+                WorkflowType.TransformToDefault => GetTransformToDefaultActionDescription(workflow),
+                _ => ""
+            };
+        }
+
+        private string GetArchiveOnlyActionDescription(ConfigCleanupContext workflow)
+        {
             if (workflow.ArchiveConfiguration == null) return "";
 
             var currentStage = workflow.ArchiveConfiguration.CurrentStage;
             if (currentStage == null) return "Ready to Archive";
 
-            // Determine what action is needed based on stage status
             return currentStage.Status switch
             {
                 WorkflowStageStatus.Pending when currentStage.CurrentAllocationPercentage > currentStage.TargetAllocationPercentage =>
@@ -502,5 +644,15 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             };
         }
 
+        private string GetTransformToDefaultActionDescription(ConfigCleanupContext workflow)
+        {
+            if (workflow.IsCompleted)
+                return "";
+
+            if (!string.IsNullOrEmpty(workflow.ErrorMessage))
+                return "Transform failed - check error details";
+
+            return $"Click to transform '{workflow.ConfigurationName}' to default values";
+        }
     }
 }

@@ -1,3 +1,4 @@
+using Microsoft.Azure.Cosmos;
 using TechWorklowOrchestrator.ApiService.Repository;
 using TechWorklowOrchestrator.ApiService.Service;
 
@@ -10,6 +11,22 @@ builder.AddServiceDefaults();
 builder.Services.AddProblemDetails();
 
 // Add services
+
+builder.Services.AddSingleton<CosmosClient>(serviceProvider =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("CosmosDb");
+    return new CosmosClient(connectionString);
+});
+
+builder.Services.AddSingleton<IWorkflowRepository>(serviceProvider =>
+{
+    var cosmosClient = serviceProvider.GetRequiredService<CosmosClient>();
+    var databaseName = builder.Configuration["CosmosDb:DatabaseName"];
+    var containerName = builder.Configuration["CosmosDb:ContainerName"];
+
+    return new CosmosDbWorkflowRepository(cosmosClient, databaseName, containerName);
+});
+
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
@@ -17,7 +34,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
-builder.Services.AddSingleton<IWorkflowRepository, InMemoryWorkflowRepository>();
+// builder.Services.AddSingleton<IWorkflowRepository, InMemoryWorkflowRepository>();
 builder.Services.AddSingleton<IProjectService, ProjectService>();
 
 var app = builder.Build();

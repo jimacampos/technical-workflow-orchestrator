@@ -34,7 +34,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
             try
             {
                 Console.WriteLine($"Transforming {Context.ConfigurationName} to default values");
-                await Task.Delay(2000); // Simulate transformation
+                await Task.Delay(10000); // Simulate transformation
                 await _stateMachine.FireAsync(WorkflowTrigger.TransformCompleted);
             }
             catch (Exception ex)
