@@ -243,7 +243,7 @@
     {
         WorkflowState.Created => "bg-secondary",
         WorkflowState.InProgress or WorkflowState.ReducingTo80Percent or WorkflowState.ReducingToZero or
-        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
+        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merged or WorkflowState.Transforming => "bg-primary",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
         WorkflowState.WaitingForDeployment => "bg-warning",
         WorkflowState.AwaitingUserAction => "bg-info text-dark", // NEW: Blue for manual action needed

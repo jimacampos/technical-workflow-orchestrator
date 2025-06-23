@@ -25,7 +25,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
         // Code-First specific
         CreatingPR,
         AwaitingReview,
-        Merging,
+        Merged,
         WaitingForDeployment,
 
         // Transform-to-Default specific

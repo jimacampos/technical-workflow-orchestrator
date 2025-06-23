@@ -16,5 +16,11 @@
         public Guid? ProjectId { get; set; }
         public string? ProjectName { get; set; }
         public ServiceName? ProjectService { get; set; }
+        public string? PullRequestUrl { get; set; }
+        public DateTime? CodeWorkStartedAt { get; set; }
+        public DateTime? PRCreatedAt { get; set; }
+        public DateTime? PRApprovedAt { get; set; }
+        public DateTime? PRMergedAt { get; set; }
+        public DateTime? DeploymentDetectedAt { get; set; }
     }
 }

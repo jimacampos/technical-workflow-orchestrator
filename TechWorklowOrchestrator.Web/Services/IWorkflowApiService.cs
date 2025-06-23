@@ -12,5 +12,6 @@ namespace TechWorklowOrchestrator.Web.Services
         Task<WorkflowResponse> HandleExternalEventAsync(Guid id, ExternalEventRequest eventRequest);
         Task<bool> DeleteWorkflowAsync(Guid id);
         Task<WorkflowResponse?> ProceedWorkflowAsync(Guid projectId, Guid workflowId);
+        Task<WorkflowResponse?> SetPullRequestUrlAsync(Guid projectId, Guid workflowId, string pullRequestUrl);
     }
 }

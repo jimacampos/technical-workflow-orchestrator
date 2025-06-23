@@ -13,7 +13,7 @@
         Archiving,
         CreatingPR,
         AwaitingReview,
-        Merging,
+        Merged,
         WaitingForDeployment,
         Transforming,
         AwaitingUserAction

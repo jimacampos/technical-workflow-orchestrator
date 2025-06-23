@@ -83,7 +83,7 @@ namespace TechWorklowOrchestrator.ApiService.Service
             var existingWorkflow = GetWorkflowById(workflow.Id);
             if (existingWorkflow != null)
             {
-                // Update properties
+                // Update common properties
                 existingWorkflow.CurrentTrafficPercentage = workflow.CurrentTrafficPercentage;
                 existingWorkflow.PullRequestUrl = workflow.PullRequestUrl;
                 existingWorkflow.WaitStartTime = workflow.WaitStartTime;
@@ -96,6 +96,13 @@ namespace TechWorklowOrchestrator.ApiService.Service
 
                 // Update ArchiveOnly specific properties
                 existingWorkflow.ArchiveConfiguration = workflow.ArchiveConfiguration;
+
+                // Update CodeFirst specific properties
+                existingWorkflow.CodeWorkStartedAt = workflow.CodeWorkStartedAt;
+                existingWorkflow.PRCreatedAt = workflow.PRCreatedAt;
+                existingWorkflow.PRApprovedAt = workflow.PRApprovedAt;
+                existingWorkflow.PRMergedAt = workflow.PRMergedAt;
+                existingWorkflow.DeploymentDetectedAt = workflow.DeploymentDetectedAt;
             }
         }
 

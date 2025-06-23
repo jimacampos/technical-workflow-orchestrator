@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 
 namespace TechWorklowOrchestrator.Core.Workflow
 {
-    // Code-First Workflow: Create PR → Review → Merge → Wait for deployment → Archive
-    // TODO: add option to transform workflow to archive when it is finished
+    // Code-First Workflow: Create PR → Review → Merge → Wait for deployment → Complete
+    // Manual workflow - user triggers each step, automation can be added later
     public class CodeFirstWorkflow : ConfigCleanupWorkflowBase
     {
         public CodeFirstWorkflow(ConfigCleanupContext context)
@@ -18,90 +18,90 @@ namespace TechWorklowOrchestrator.Core.Workflow
 
         private void ConfigureStateMachine()
         {
+            // 1. Created → Ready to create code changes
             _stateMachine.Configure(WorkflowState.Created)
-                .Permit(WorkflowTrigger.Start, WorkflowState.CreatingPR);
+                .OnEntry(() => Console.WriteLine($"CodeFirst workflow created for {Context.ConfigurationName}"))
+                .Permit(WorkflowTrigger.Start, WorkflowState.InProgress);
 
+            // 2. InProgress → Currently working on the code changes  
+            _stateMachine.Configure(WorkflowState.InProgress)
+                .OnEntry(() => Console.WriteLine("Working on code changes..."))
+                .Permit(WorkflowTrigger.UserProceed, WorkflowState.CreatingPR)
+                .Permit(WorkflowTrigger.Fail, WorkflowState.Failed);
+
+            // 3. CreatingPR → User provides PR link
             _stateMachine.Configure(WorkflowState.CreatingPR)
-                .OnEntryAsync(async () => await CreatePullRequestAsync())
+                .OnEntry(() => Console.WriteLine("Ready to create/link pull request"))
                 .Permit(WorkflowTrigger.PRCreated, WorkflowState.AwaitingReview)
                 .Permit(WorkflowTrigger.Fail, WorkflowState.Failed);
 
+            // 4. AwaitingReview → PR created, waiting for review/approval
             _stateMachine.Configure(WorkflowState.AwaitingReview)
-                .OnEntry(() => Console.WriteLine($"PR created, awaiting review: {Context.PullRequestUrl}"))
-                .Permit(WorkflowTrigger.PRApproved, WorkflowState.Merging)
+                .OnEntry(() => Console.WriteLine($"PR awaiting review: {Context.PullRequestUrl}"))
+                .Permit(WorkflowTrigger.PRApproved, WorkflowState.Merged)
                 .Permit(WorkflowTrigger.Fail, WorkflowState.Failed);
 
-            _stateMachine.Configure(WorkflowState.Merging)
-                .OnEntryAsync(async () => await MergePullRequestAsync())
+            // 5. Merged → PR approved and merged to main branch
+            _stateMachine.Configure(WorkflowState.Merged)
+                .OnEntry(() => Console.WriteLine("PR has been merged to main branch"))
                 .Permit(WorkflowTrigger.PRMerged, WorkflowState.WaitingForDeployment)
                 .Permit(WorkflowTrigger.Fail, WorkflowState.Failed);
 
+            // 6. WaitingForDeployment → Code merged, waiting for deployment detection
             _stateMachine.Configure(WorkflowState.WaitingForDeployment)
                 .OnEntry(() => Console.WriteLine("Waiting for deployment to complete..."))
-                .Permit(WorkflowTrigger.DeploymentDetected, WorkflowState.Archiving)
+                .Permit(WorkflowTrigger.DeploymentDetected, WorkflowState.Completed)
                 .Permit(WorkflowTrigger.Timeout, WorkflowState.Failed);
 
-            _stateMachine.Configure(WorkflowState.Archiving)
-                .OnEntryAsync(async () => await ArchiveConfigurationAsync())
-                .Permit(WorkflowTrigger.ArchiveCompleted, WorkflowState.Completed)
-                .Permit(WorkflowTrigger.Fail, WorkflowState.Failed);
-
+            // 7. Completed → Everything done
             _stateMachine.Configure(WorkflowState.Completed)
-                .OnEntry(() => Console.WriteLine($"Code-first workflow completed for {Context.ConfigurationName}"));
+                .OnEntry(() => Console.WriteLine($"✅ CodeFirst workflow completed for {Context.ConfigurationName}"));
+
+            // Error state
+            _stateMachine.Configure(WorkflowState.Failed)
+                .OnEntry(() => Console.WriteLine($"❌ Workflow failed: {Context.ErrorMessage}"));
         }
 
-        private async Task CreatePullRequestAsync()
+        // Manual trigger methods for user actions
+        public async Task StartCodeWorkAsync()
         {
-            try
+            if (_stateMachine.CanFire(WorkflowTrigger.Start))
             {
-                Console.WriteLine($"Creating PR to remove {Context.ConfigurationName} from code");
-                await Task.Delay(3000); // Simulate PR creation
-                Context.PullRequestUrl = $"https://github.com/company/repo/pull/12345";
+                Context.CodeWorkStartedAt = DateTime.UtcNow;
+                await _stateMachine.FireAsync(WorkflowTrigger.Start);
+            }
+        }
+
+        public async Task CompleteCodeWorkAsync()
+        {
+            if (_stateMachine.CanFire(WorkflowTrigger.UserProceed))
+            {
+                await _stateMachine.FireAsync(WorkflowTrigger.UserProceed);
+            }
+        }
+
+        public async Task SetPullRequestAsync(string prUrl)
+        {
+            if (_stateMachine.CanFire(WorkflowTrigger.PRCreated))
+            {
+                Context.PullRequestUrl = prUrl;
                 await _stateMachine.FireAsync(WorkflowTrigger.PRCreated);
             }
-            catch (Exception ex)
-            {
-                Context.ErrorMessage = ex.Message;
-                await _stateMachine.FireAsync(WorkflowTrigger.Fail);
-            }
         }
 
-        private async Task MergePullRequestAsync()
-        {
-            try
-            {
-                Console.WriteLine("Merging approved PR...");
-                await Task.Delay(1000);
-                await _stateMachine.FireAsync(WorkflowTrigger.PRMerged);
-            }
-            catch (Exception ex)
-            {
-                Context.ErrorMessage = ex.Message;
-                await _stateMachine.FireAsync(WorkflowTrigger.Fail);
-            }
-        }
-
-        private async Task ArchiveConfigurationAsync()
-        {
-            try
-            {
-                Console.WriteLine($"Archiving configuration {Context.ConfigurationName}");
-                await Task.Delay(1500);
-                await _stateMachine.FireAsync(WorkflowTrigger.ArchiveCompleted);
-            }
-            catch (Exception ex)
-            {
-                Context.ErrorMessage = ex.Message;
-                await _stateMachine.FireAsync(WorkflowTrigger.Fail);
-            }
-        }
-
-        // Manual trigger methods for external events
         public async Task NotifyPRApprovedAsync()
         {
             if (_stateMachine.CanFire(WorkflowTrigger.PRApproved))
             {
                 await _stateMachine.FireAsync(WorkflowTrigger.PRApproved);
+            }
+        }
+
+        public async Task ConfirmMergeAsync()
+        {
+            if (_stateMachine.CanFire(WorkflowTrigger.PRMerged))
+            {
+                await _stateMachine.FireAsync(WorkflowTrigger.PRMerged);
             }
         }
 
@@ -115,7 +115,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
 
         public override async Task<bool> CanStartAsync()
         {
-            // Check if configuration exists in code
+            // Check if configuration exists and is valid for code-first cleanup
             return !string.IsNullOrEmpty(Context.ConfigurationName);
         }
 
@@ -123,7 +123,7 @@ namespace TechWorklowOrchestrator.Core.Workflow
         {
             if (await CanStartAsync())
             {
-                await _stateMachine.FireAsync(WorkflowTrigger.Start);
+                await StartCodeWorkAsync();
             }
         }
 
@@ -131,15 +131,32 @@ namespace TechWorklowOrchestrator.Core.Workflow
         {
             return CurrentState switch
             {
-                WorkflowState.Created => "Ready to create PR",
-                WorkflowState.CreatingPR => "Creating pull request...",
+                WorkflowState.Created => "Ready to start code changes",
+                WorkflowState.InProgress => "🔄 Working on code changes",
+                WorkflowState.CreatingPR => "Ready to create/link pull request",
                 WorkflowState.AwaitingReview => $"⏳ Awaiting PR review: {Context.PullRequestUrl}",
-                WorkflowState.Merging => "Merging approved PR...",
+                WorkflowState.Merged => "🔄 PR merged, ready to confirm deployment wait",
                 WorkflowState.WaitingForDeployment => "⏳ Waiting for deployment",
-                WorkflowState.Archiving => "Archiving configuration...",
-                WorkflowState.Completed => "✅ Code removed and configuration archived",
+                WorkflowState.Completed => "✅ Code removed and deployed",
                 WorkflowState.Failed => $"❌ Failed: {Context.ErrorMessage}",
                 _ => "Unknown state"
+            };
+        }
+
+        // Helper method to get available actions for current state
+        public List<string> GetAvailableActions()
+        {
+            return CurrentState switch
+            {
+                WorkflowState.Created => new List<string> { "Start Code Work" },
+                WorkflowState.InProgress => new List<string> { "Complete Code Work" },
+                WorkflowState.CreatingPR => new List<string> { "Set Pull Request URL" },
+                WorkflowState.AwaitingReview => new List<string> { "Mark PR as Approved" },
+                WorkflowState.Merged => new List<string> { "Confirm Merge" },
+                WorkflowState.WaitingForDeployment => new List<string> { "Confirm Deployment" },
+                WorkflowState.Completed => new List<string>(),
+                WorkflowState.Failed => new List<string>(),
+                _ => new List<string>()
             };
         }
     }

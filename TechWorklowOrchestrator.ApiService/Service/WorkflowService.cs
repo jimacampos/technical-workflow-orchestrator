@@ -289,7 +289,7 @@ namespace TechWorklowOrchestrator.ApiService.Service
                 WorkflowState.Created => (0, 6, "Ready to create PR", false, ""),
                 WorkflowState.CreatingPR => (1, 6, "Creating pull request", false, ""),
                 WorkflowState.AwaitingReview => (2, 6, "Awaiting PR review", true, "Review and approve the pull request"),
-                WorkflowState.Merging => (3, 6, "Merging PR", false, ""),
+                WorkflowState.Merged => (3, 6, "Merging PR", false, ""),
                 WorkflowState.WaitingForDeployment => (4, 6, "Waiting for deployment", true, "Monitor deployment completion"),
                 WorkflowState.Archiving => (5, 6, "Archiving configuration", false, ""),
                 WorkflowState.Completed => (6, 6, "Completed", false, ""),
@@ -315,7 +315,7 @@ namespace TechWorklowOrchestrator.ApiService.Service
             WorkflowState.Created or WorkflowState.InProgress or WorkflowState.Waiting or
             WorkflowState.ReducingTo80Percent or WorkflowState.WaitingAfter80Percent or
             WorkflowState.ReducingToZero or WorkflowState.Archiving or WorkflowState.CreatingPR or
-            WorkflowState.AwaitingReview or WorkflowState.Merging or WorkflowState.WaitingForDeployment or
+            WorkflowState.AwaitingReview or WorkflowState.Merged or WorkflowState.WaitingForDeployment or
             WorkflowState.Transforming => true,
             _ => false
         };

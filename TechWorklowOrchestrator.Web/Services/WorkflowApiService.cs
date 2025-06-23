@@ -238,5 +238,22 @@ namespace TechWorklowOrchestrator.Web.Services
                 throw;
             }
         }
+
+        public async Task<WorkflowResponse?> SetPullRequestUrlAsync(Guid projectId, Guid workflowId, string pullRequestUrl)
+        {
+            var request = new { PullRequestUrl = pullRequestUrl };
+            var json = JsonSerializer.Serialize(request, _jsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PutAsync($"api/projects/{projectId}/workflows/{workflowId}/pullrequest", content);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return null;
+
+            response.EnsureSuccessStatusCode();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<WorkflowResponse>(responseJson, _jsonOptions);
+        }
+
     }
 }

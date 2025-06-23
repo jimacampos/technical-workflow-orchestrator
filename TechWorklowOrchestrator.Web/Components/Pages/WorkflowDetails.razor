@@ -298,7 +298,6 @@
                     </div>
                 }
             </div>
-
             <div class="col-md-4">
                 @* @if (workflow.Metadata?.Any() == true)
                 {
@@ -339,9 +338,158 @@
                 </div>
             </div>
         </div>
-
     </div>
 
+    @if (workflow?.WorkflowType == WorkflowType.CodeFirst)
+    {
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-code-slash"></i> CodeFirst Progress
+                </h5>
+            </div>
+            <div class="card-body">
+                <!-- Simple Step Indicator -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold">Progress</span>
+                            <span class="text-muted">Step @GetCodeFirstStepProgress() of 5</span>
+                        </div>
+                        <div class="progress" style="height: 12px;">
+                            <div class="progress-bar @GetCodeFirstProgressBarClass()"
+                                 role="progressbar"
+                                 style="width: @(GetCodeFirstStepProgress() * 20)%"
+                                 aria-valuenow="@GetCodeFirstStepProgress()"
+                                 aria-valuemin="0"
+                                 aria-valuemax="5">
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between mt-1">
+                            <small class="text-muted">Code</small>
+                            <small class="text-muted">PR</small>
+                            <small class="text-muted">Review</small>
+                            <small class="text-muted">Merge</small>
+                            <small class="text-muted">Deploy</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Step Details -->
+                <div class="alert @GetCodeFirstCurrentStepAlertClass() border-0">
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            @if (workflow.CurrentState == WorkflowState.InProgress)
+                            {
+                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                            }
+                            else if (workflow.CurrentState == WorkflowState.AwaitingUserAction)
+                            {
+                                <i class="bi bi-hand-index fs-5 text-info"></i>
+                            }
+                            else if (workflow.CurrentState == WorkflowState.AwaitingReview || workflow.CurrentState == WorkflowState.WaitingForDeployment)
+                            {
+                                <i class="bi bi-clock fs-5 text-warning"></i>
+                            }
+                            else if (workflow.CurrentState == WorkflowState.Completed)
+                            {
+                                <i class="bi bi-check-circle fs-5 text-success"></i>
+                            }
+                            else
+                            {
+                                <i class="bi bi-circle fs-5 text-muted"></i>
+                            }
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold">@GetCodeFirstCurrentStepTitle()</div>
+                            <div class="text-muted">@GetCodeFirstCurrentStepDescription()</div>
+                            @if (!string.IsNullOrEmpty(workflow.PullRequestUrl))
+                            {
+                                <div class="mt-1">
+                                    <a href="@workflow.PullRequestUrl" target="_blank" class="text-decoration-none">
+                                        <i class="bi bi-box-arrow-up-right"></i> View Pull Request
+                                    </a>
+                                </div>
+                            }
+                        </div>
+                        @if (workflow.CurrentState == WorkflowState.AwaitingUserAction && string.IsNullOrEmpty(workflow.PullRequestUrl))
+                        {
+                            <div>
+                                <button class="btn btn-primary btn-sm" @onclick="() => showPRUrlModal = true">
+                                    <i class="bi bi-link-45deg"></i> Set PR URL
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Next Steps Reminder for Completed CodeFirst Workflows -->
+    @if (workflow?.WorkflowType == WorkflowType.CodeFirst && (workflow.CurrentState.ToString() == "Completed"))
+    {
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="alert alert-info border-0 m-0">
+                    <div class="d-flex align-items-start">
+                        <div class="me-3">
+                            <i class="bi bi-info-circle fs-4 text-info"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <h5 class="fw-bold mb-2">Next Step: Configuration Cleanup</h5>
+                            <p class="text-muted mb-3">
+                                Great job! The code has been removed and deployed successfully. However, you may still need to clean up the actual configuration values.
+                                Consider creating an <strong>ArchiveOnly workflow</strong> to safely rolldown and remove the configuration from your system.
+                            </p>
+                            <div>
+                                <a href="/projects/@workflow.ProjectId/workflows/create" class="btn btn-primary">
+                                    <i class="bi bi-plus-circle me-2"></i> Create ArchiveOnly Workflow
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (showPRUrlModal)
+    {
+        <div class="modal show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Set Pull Request URL</h5>
+                        <button type="button" class="btn-close" @onclick="() => showPRUrlModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Pull Request URL</label>
+                            <input type="url" class="form-control" @bind="prUrlInput"
+                                   placeholder="https://github.com/your-org/repo/pull/123" />
+                            <div class="form-text">
+                                Enter the URL of the pull request created for removing this configuration.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @onclick="() => showPRUrlModal = false">
+                            Cancel
+                        </button>
+                        <button type="button" class="btn btn-primary" @onclick="SetPullRequestUrl"
+                                disabled="@(string.IsNullOrEmpty(prUrlInput) || isSettingPRUrl)">
+                            @if (isSettingPRUrl)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Set PR URL
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
     <!-- External Event Modal -->
     @if (showEventModal)
     {
@@ -360,6 +508,7 @@
                                 @if (workflow.WorkflowType == WorkflowType.CodeFirst)
                                 {
                                     <option value="PRApproved">PR Approved</option>
+                                    <option value="PRMerged">PR Merged</option>
                                     <option value="DeploymentCompleted">Deployment Completed</option>
                                 }
                                 <option value="WaitPeriodCompleted">Wait Period Completed</option>
@@ -495,6 +644,9 @@ else
     private bool isAutoRefreshing = false;
     private DateTime lastRefresh = DateTime.MinValue;
     private bool isProceedingWorkflow = false;
+    private bool showPRUrlModal = false;
+    private string prUrlInput = "";
+    private bool isSettingPRUrl = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -552,6 +704,17 @@ else
         if (workflow.WorkflowType == WorkflowType.ArchiveOnly &&
             (workflow.CurrentState == WorkflowState.InProgress ||
              workflow.CurrentState == WorkflowState.Waiting ||
+             workflow.CurrentState == WorkflowState.AwaitingUserAction ||
+             workflow.CurrentState == WorkflowState.Created))
+        {
+            return true;
+        }
+
+        // Auto-refresh for CodeFirst workflows that are active
+        if (workflow.WorkflowType == WorkflowType.CodeFirst &&
+            (workflow.CurrentState == WorkflowState.InProgress ||
+             workflow.CurrentState == WorkflowState.AwaitingReview ||
+             workflow.CurrentState == WorkflowState.WaitingForDeployment ||
              workflow.CurrentState == WorkflowState.AwaitingUserAction ||
              workflow.CurrentState == WorkflowState.Created))
         {
@@ -699,7 +862,6 @@ else
     {
         return workflow.CurrentState switch
         {
-            WorkflowState.AwaitingReview or WorkflowState.WaitingForDeployment or
             WorkflowState.WaitingAfter80Percent => true,
             _ => false
         };
@@ -709,9 +871,10 @@ else
     {
         WorkflowState.Created => "bg-secondary",
         WorkflowState.InProgress or WorkflowState.ReducingTo80Percent or WorkflowState.ReducingToZero or
-        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merging or WorkflowState.Transforming => "bg-primary",
+        WorkflowState.Archiving or WorkflowState.CreatingPR or WorkflowState.Merged or WorkflowState.Transforming => "bg-primary",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
         WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.AwaitingUserAction => "bg-info", // CodeFirst manual actions
         WorkflowState.Completed => "bg-success",
         WorkflowState.Failed => "bg-danger",
         _ => "bg-secondary"
@@ -723,6 +886,7 @@ else
         WorkflowState.Failed => "bg-danger",
         WorkflowState.Waiting or WorkflowState.WaitingAfter80Percent or WorkflowState.AwaitingReview or
         WorkflowState.WaitingForDeployment => "bg-warning",
+        WorkflowState.AwaitingUserAction => "bg-info", // CodeFirst awaiting action
         _ => "bg-primary"
     };
 
@@ -830,6 +994,15 @@ else
     {
         if (workflow == null) return;
 
+        // Special handling for CodeFirst PR URL setting
+        if (workflow.WorkflowType == WorkflowType.CodeFirst &&
+            workflow.CurrentState == WorkflowState.AwaitingUserAction &&
+            string.IsNullOrEmpty(workflow.PullRequestUrl))
+        {
+            showPRUrlModal = true;
+            return;
+        }
+
         isProceedingWorkflow = true;
         try
         {
@@ -864,8 +1037,12 @@ else
         if (workflow?.CurrentState != WorkflowState.AwaitingUserAction)
             return "Proceed";
 
-        // Parse the status to extract the action description
-        // The status should contain something like "⏳ Start Rolldown (100% → 80%)"
+        if (workflow.WorkflowType == WorkflowType.CodeFirst)
+        {
+            return GetCodeFirstProceedButtonText();
+        }
+
+        // Existing ArchiveOnly logic...
         var status = workflow.Status;
         if (status.Contains("Start Rolldown"))
             return "Start Rolldown";
@@ -877,6 +1054,149 @@ else
             return "Archive";
         else
             return "Proceed";
+    }
+
+    private string GetCodeFirstProceedButtonText()
+    {
+        if (workflow == null) return "Proceed";
+
+        // Check the current step based on what's completed
+        if (!workflow.CodeWorkStartedAt.HasValue)
+            return "Start Code Work";
+
+        if (string.IsNullOrEmpty(workflow.PullRequestUrl))
+            return "Set PR URL";
+
+        if (!workflow.PRApprovedAt.HasValue)
+            return "Mark PR as Approved";
+
+        if (!workflow.PRMergedAt.HasValue)
+            return "Confirm Merge";
+
+        if (!workflow.DeploymentDetectedAt.HasValue)
+            return "Confirm Deployment";
+
+        return "Complete";
+    }
+
+    private async Task SetPullRequestUrl()
+    {
+        if (string.IsNullOrEmpty(prUrlInput) || workflow == null) return;
+
+        isSettingPRUrl = true;
+        try
+        {
+            // Call the API to set the PR URL
+            var response = await WorkflowApi.SetPullRequestUrlAsync(workflow.ProjectId!.Value, workflow.Id, prUrlInput);
+
+            if (response != null)
+            {
+                workflow = response;
+                showPRUrlModal = false;
+                prUrlInput = "";
+
+                // Refresh to get updated data
+                await LoadWorkflow(silent: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting PR URL: {ex.Message}");
+            // You could add error display here
+        }
+        finally
+        {
+            isSettingPRUrl = false;
+        }
+    }
+
+    private int GetCodeFirstStepProgress()
+    {
+        if (workflow?.WorkflowType != WorkflowType.CodeFirst) return 0;
+
+        // Determine current step based on workflow state and both metadata and properties
+        if (workflow.CurrentState == WorkflowState.Completed) return 5; // All done
+
+        // Check both metadata and properties for deployment
+        if (workflow.Metadata.ContainsKey("deploymentDetectedAt") || workflow.DeploymentDetectedAt.HasValue) return 5;
+
+        // Check both metadata and properties for merge
+        if (workflow.Metadata.ContainsKey("prMergedAt") || workflow.PRMergedAt.HasValue) return 4;
+
+        // Check both metadata and properties for approval
+        if (workflow.Metadata.ContainsKey("prApprovedAt") || workflow.PRApprovedAt.HasValue) return 4;
+
+        // Check both metadata and properties for PR creation
+        if (!string.IsNullOrEmpty(workflow.PullRequestUrl) ||
+            workflow.Metadata.ContainsKey("prCreatedAt") ||
+            workflow.PRCreatedAt.HasValue) return 3;
+
+        // Check both metadata and properties for code work
+        if (workflow.Metadata.ContainsKey("codeWorkStartedAt") ||
+            workflow.CodeWorkStartedAt.HasValue ||
+            workflow.CurrentState != WorkflowState.Created) return 2;
+
+        return 1; // Just created
+    }
+
+    private string GetCodeFirstProgressBarClass()
+    {
+        if (workflow?.CurrentState == WorkflowState.Completed) return "bg-success";
+        if (workflow?.CurrentState == WorkflowState.Failed) return "bg-danger";
+        return "bg-primary";
+    }
+
+    private string GetCodeFirstCurrentStepAlertClass()
+    {
+        return workflow?.CurrentState switch
+        {
+            WorkflowState.AwaitingUserAction => "alert-info",
+            WorkflowState.AwaitingReview or WorkflowState.WaitingForDeployment => "alert-warning",
+            WorkflowState.Completed => "alert-success",
+            WorkflowState.Failed => "alert-danger",
+            _ => "alert-light"
+        };
+    }
+
+    private string GetCodeFirstCurrentStepTitle()
+    {
+        var step = GetCodeFirstStepProgress();
+        return step switch
+        {
+            1 => "Step 1: Code Changes",
+            2 => "Step 2: Create Pull Request",
+            3 => "Step 3: PR Review & Approval",
+            4 => "Step 4: Merge to Main",
+            5 => "Step 5: Deployment",
+            _ => "CodeFirst Workflow"
+        };
+    }
+
+    private string GetCodeFirstCurrentStepDescription()
+    {
+        if (workflow?.CurrentState == WorkflowState.Completed)
+            return "All steps completed! Configuration has been removed from code and deployed.";
+
+        if (workflow?.CurrentState == WorkflowState.Failed)
+            return $"Workflow failed: {workflow.ErrorMessage}";
+
+        // Check the current step based on what's completed
+        if (!workflow.CodeWorkStartedAt.HasValue)
+            return "Click 'Start Code Work' to begin making code changes.";
+
+        if (string.IsNullOrEmpty(workflow.PullRequestUrl))
+            return "Code work completed. Click 'Set PR URL' to link your pull request.";
+
+        if (!workflow.PRApprovedAt.HasValue)
+            return "Pull request created. Click 'Mark PR as Approved' when the PR has been reviewed and approved.";
+
+        if (!workflow.PRMergedAt.HasValue)
+            return "PR approved. Click 'Confirm Merge' when the pull request has been merged to main.";
+
+        if (!workflow.DeploymentDetectedAt.HasValue)
+            return "Code merged. Click 'Confirm Deployment' when the deployment with your changes is complete.";
+
+        return "Processing workflow step...";
     }
 
     public class StageProgressModel

@@ -201,6 +201,51 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     Console.WriteLine($"Error creating stage progress: {ex.Message}");
                 }
             }
+
+            // Add CodeFirst metadata
+            else if (workflow.WorkflowType == WorkflowType.CodeFirst)
+            {
+                try
+                {
+                    Console.WriteLine($"Adding CodeFirst metadata for workflow {workflow.Id}");
+
+                    if (workflow.CodeWorkStartedAt.HasValue)
+                    {
+                        metadata["codeWorkStartedAt"] = workflow.CodeWorkStartedAt.Value.ToString("O");
+                        Console.WriteLine($"Added codeWorkStartedAt: {workflow.CodeWorkStartedAt.Value}");
+                    }
+
+                    if (workflow.PRCreatedAt.HasValue)
+                    {
+                        metadata["prCreatedAt"] = workflow.PRCreatedAt.Value.ToString("O");
+                        Console.WriteLine($"Added prCreatedAt: {workflow.PRCreatedAt.Value}");
+                    }
+
+                    if (workflow.PRApprovedAt.HasValue)
+                    {
+                        metadata["prApprovedAt"] = workflow.PRApprovedAt.Value.ToString("O");
+                        Console.WriteLine($"Added prApprovedAt: {workflow.PRApprovedAt.Value}");
+                    }
+
+                    if (workflow.PRMergedAt.HasValue)
+                    {
+                        metadata["prMergedAt"] = workflow.PRMergedAt.Value.ToString("O");
+                        Console.WriteLine($"Added prMergedAt: {workflow.PRMergedAt.Value}");
+                    }
+
+                    if (workflow.DeploymentDetectedAt.HasValue)
+                    {
+                        metadata["deploymentDetectedAt"] = workflow.DeploymentDetectedAt.Value.ToString("O");
+                        Console.WriteLine($"Added deploymentDetectedAt: {workflow.DeploymentDetectedAt.Value}");
+                    }
+
+                    Console.WriteLine($"CodeFirst metadata count: {metadata.Count}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error creating CodeFirst metadata: {ex.Message}");
+                }
+            }
             else
             {
                 Console.WriteLine($"Workflow type: {workflow.WorkflowType}, ArchiveConfiguration is null: {workflow.ArchiveConfiguration == null}");
@@ -219,6 +264,12 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 ErrorMessage = workflow.ErrorMessage,
                 ProjectId = workflow.ProjectId,
                 ProjectName = GetProjectName(workflow.ProjectId),
+                PullRequestUrl = workflow.PullRequestUrl, // Include this!
+                CodeWorkStartedAt = workflow.CodeWorkStartedAt, // Include these for debugging
+                PRCreatedAt = workflow.PRCreatedAt,
+                PRApprovedAt = workflow.PRApprovedAt,
+                PRMergedAt = workflow.PRMergedAt,
+                DeploymentDetectedAt = workflow.DeploymentDetectedAt,
                 Progress = new
                 {
                     PercentComplete = workflow.GetOverallProgress(),
@@ -343,6 +394,34 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                         return BadRequest("TransformToDefault workflow cannot be started - check configuration");
                     }
                 }
+                else if (workflow.WorkflowType == WorkflowType.CodeFirst)
+                {
+                    Console.WriteLine($"CodeWorkStartedAt before start: {workflow.CodeWorkStartedAt}");
+
+                    var codeFirstWorkflow = new CodeFirstWorkflow(workflow);
+                    Console.WriteLine($"Created CodeFirstWorkflow, current state: {codeFirstWorkflow.CurrentState}");
+
+                    // Check if workflow can be started
+                    if (await codeFirstWorkflow.CanStartAsync())
+                    {
+                        Console.WriteLine("CodeFirst CanStartAsync returned true, calling StartAsync...");
+
+                        // Start the workflow
+                        await codeFirstWorkflow.StartAsync();
+
+                        Console.WriteLine($"CodeFirst StartAsync completed, new state: {codeFirstWorkflow.CurrentState}");
+                        Console.WriteLine($"CodeWorkStartedAt after start: {workflow.CodeWorkStartedAt}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("CodeFirst workflow changes persisted");
+                    }
+                    else
+                    {
+                        Console.WriteLine("CodeFirst CanStartAsync returned false");
+                        return BadRequest("CodeFirst workflow cannot be started - check configuration");
+                    }
+                }
                 else
                 {
                     return BadRequest($"Workflow type {workflow.WorkflowType} is not supported yet");
@@ -448,6 +527,78 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     }
                     Console.WriteLine($"=== End Controller TransformToDefault Proceed Debug ===");
                 }
+                else if (workflow.WorkflowType == WorkflowType.CodeFirst)
+                {
+                    Console.WriteLine($"=== Controller CodeFirst Proceed Debug ===");
+                    Console.WriteLine($"Workflow ID: {workflow.Id}");
+                    Console.WriteLine($"Derived Current State: {DeriveCurrentState(workflow)}");
+                    Console.WriteLine($"CodeWorkStartedAt: {workflow.CodeWorkStartedAt}");
+                    Console.WriteLine($"PRCreatedAt: {workflow.PRCreatedAt}");
+                    Console.WriteLine($"PRApprovedAt: {workflow.PRApprovedAt}");
+                    Console.WriteLine($"PRMergedAt: {workflow.PRMergedAt}");
+                    Console.WriteLine($"DeploymentDetectedAt: {workflow.DeploymentDetectedAt}");
+                    Console.WriteLine($"PullRequestUrl: {workflow.PullRequestUrl}");
+
+                    var codeFirstWorkflow = new CodeFirstWorkflow(workflow);
+                    Console.WriteLine($"Created CodeFirstWorkflow, state machine state: {codeFirstWorkflow.CurrentState}");
+
+                    // Determine which action to take based on current state
+                    var currentAction = GetCodeFirstCurrentAction(workflow);
+                    Console.WriteLine($"Determined current action: {currentAction}");
+
+                    try
+                    {
+                        switch (currentAction)
+                        {
+                            case "CompleteCodeWork":
+                                Console.WriteLine("Executing CompleteCodeWork...");
+                                await codeFirstWorkflow.CompleteCodeWorkAsync();
+                                break;
+
+                            case "MarkPRApproved":
+                                Console.WriteLine("Executing MarkPRApproved...");
+                                await codeFirstWorkflow.NotifyPRApprovedAsync();
+                                workflow.PRApprovedAt = DateTime.UtcNow;
+                                Console.WriteLine($"Set PRApprovedAt to: {workflow.PRApprovedAt}");
+                                break;
+
+                            case "ConfirmMerge":
+                                Console.WriteLine("Executing ConfirmMerge...");
+                                await codeFirstWorkflow.ConfirmMergeAsync();
+                                workflow.PRMergedAt = DateTime.UtcNow;
+                                Console.WriteLine($"Set PRMergedAt to: {workflow.PRMergedAt}");
+                                break;
+
+                            case "ConfirmDeployment":
+                                Console.WriteLine("Executing ConfirmDeployment...");
+                                await codeFirstWorkflow.NotifyDeploymentCompletedAsync();
+                                workflow.DeploymentDetectedAt = DateTime.UtcNow;
+                                workflow.IsCompleted = true;
+                                Console.WriteLine($"Set DeploymentDetectedAt to: {workflow.DeploymentDetectedAt}");
+                                Console.WriteLine($"Set IsCompleted to: {workflow.IsCompleted}");
+                                break;
+
+                            default:
+                                Console.WriteLine($"Unknown or invalid action: {currentAction}");
+                                return BadRequest($"CodeFirst workflow cannot proceed - unknown action: {currentAction}");
+                        }
+
+                        Console.WriteLine($"CodeFirst action {currentAction} completed, new state machine state: {codeFirstWorkflow.CurrentState}");
+                        Console.WriteLine($"New derived state: {DeriveCurrentState(workflow)}");
+
+                        // Persist the changes
+                        _projectService.UpdateWorkflow(workflow);
+                        Console.WriteLine("CodeFirst workflow changes persisted");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error during CodeFirst proceed: {ex.Message}");
+                        Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                        return BadRequest($"Error proceeding CodeFirst workflow: {ex.Message}");
+                    }
+
+                    Console.WriteLine($"=== End Controller CodeFirst Proceed Debug ===");
+                }
 
                 Console.WriteLine("=== Workflow proceed completed, returning response ===");
 
@@ -466,6 +617,74 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 return StatusCode(500, $"Error proceeding workflow: {ex.Message}");
             }
         }
+
+        [HttpPut("{projectId}/workflows/{workflowId}/pullrequest")]
+        public async Task<ActionResult<object>> SetPullRequestUrl(Guid projectId, Guid workflowId, [FromBody] SetPullRequestRequest request)
+        {
+            try
+            {
+                Console.WriteLine($"=== Setting PR URL for workflow {workflowId} ===");
+                Console.WriteLine($"Request PR URL: '{request.PullRequestUrl}'");
+
+                var workflow = _projectService.GetWorkflowById(workflowId);
+                if (workflow == null || workflow.ProjectId != projectId)
+                {
+                    Console.WriteLine($"Workflow {workflowId} not found in project {projectId}");
+                    return NotFound($"Workflow with ID {workflowId} not found in project {projectId}");
+                }
+
+                if (workflow.WorkflowType != WorkflowType.CodeFirst)
+                {
+                    return BadRequest("Setting PR URL is only supported for CodeFirst workflows");
+                }
+
+                Console.WriteLine($"Before: PullRequestUrl='{workflow.PullRequestUrl}', PRCreatedAt={workflow.PRCreatedAt}");
+
+                var codeFirstWorkflow = new CodeFirstWorkflow(workflow);
+                Console.WriteLine($"Current state machine state: {codeFirstWorkflow.CurrentState}");
+
+                // Validate that we're in the correct state to set PR URL
+                if (workflow.PRCreatedAt.HasValue && !string.IsNullOrEmpty(workflow.PullRequestUrl))
+                {
+                    Console.WriteLine("PR URL already set, but allowing update...");
+                }
+
+                if (!workflow.CodeWorkStartedAt.HasValue)
+                {
+                    return BadRequest("Code work must be completed before setting PR URL");
+                }
+
+                // Set the PR URL in the context FIRST
+                workflow.PullRequestUrl = request.PullRequestUrl;
+                workflow.PRCreatedAt = DateTime.UtcNow;
+
+                Console.WriteLine($"Set workflow properties: PullRequestUrl='{workflow.PullRequestUrl}', PRCreatedAt={workflow.PRCreatedAt}");
+
+                // Then trigger the state machine
+                await codeFirstWorkflow.SetPullRequestAsync(request.PullRequestUrl);
+
+                Console.WriteLine($"After state machine: Current state = {codeFirstWorkflow.CurrentState}");
+                Console.WriteLine($"Final workflow state: PullRequestUrl='{workflow.PullRequestUrl}', PRCreatedAt={workflow.PRCreatedAt}");
+
+                // Persist the changes
+                _projectService.UpdateWorkflow(workflow);
+                Console.WriteLine("Changes persisted to ProjectService");
+
+                // Verify the saved data
+                var savedWorkflow = _projectService.GetWorkflowById(workflowId);
+                Console.WriteLine($"Verified saved: PullRequestUrl='{savedWorkflow?.PullRequestUrl}', PRCreatedAt={savedWorkflow?.PRCreatedAt}");
+
+                // Return the updated workflow state
+                return GetWorkflowById(workflowId);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error setting PR URL: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                return StatusCode(500, $"Error setting PR URL: {ex.Message}");
+            }
+        }
+
 
         private string? GetProjectName(Guid? projectId)
         {
@@ -501,9 +720,85 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             {
                 return DeriveTransformToDefaultState(workflow);
             }
+            else if (workflow.WorkflowType == WorkflowType.CodeFirst)
+            {
+                return DeriveCodeFirstState(workflow);
+            }
 
             Console.WriteLine("Returning: Created (default)");
             return "Created";
+        }
+
+
+        private string DeriveCodeFirstState(ConfigCleanupContext workflow)
+        {
+            Console.WriteLine($"=== DeriveCodeFirstState Debug ===");
+            Console.WriteLine($"IsCompleted: {workflow.IsCompleted}");
+            Console.WriteLine($"ErrorMessage: '{workflow.ErrorMessage}'");
+            Console.WriteLine($"CodeWorkStartedAt: {workflow.CodeWorkStartedAt}");
+            Console.WriteLine($"PRCreatedAt: {workflow.PRCreatedAt}");
+            Console.WriteLine($"PRApprovedAt: {workflow.PRApprovedAt}");
+            Console.WriteLine($"PRMergedAt: {workflow.PRMergedAt}");
+            Console.WriteLine($"DeploymentDetectedAt: {workflow.DeploymentDetectedAt}");
+            Console.WriteLine($"PullRequestUrl: '{workflow.PullRequestUrl}'");
+
+            // For CodeFirst workflows, determine state based on progress timestamps
+            if (!workflow.CodeWorkStartedAt.HasValue)
+            {
+                Console.WriteLine("Returning: Created (code work not started)");
+                return "Created";
+            }
+
+            if (!workflow.PRCreatedAt.HasValue && string.IsNullOrEmpty(workflow.PullRequestUrl))
+            {
+                Console.WriteLine("Returning: AwaitingUserAction (need to create PR)");
+                return "AwaitingUserAction";
+            }
+
+            if (!workflow.PRApprovedAt.HasValue)
+            {
+                Console.WriteLine("Returning: AwaitingUserAction (need to mark PR as approved)");
+                return "AwaitingUserAction"; // This will show the Proceed button
+            }
+
+            if (!workflow.PRMergedAt.HasValue)
+            {
+                Console.WriteLine("Returning: AwaitingUserAction (need to confirm merge)");
+                return "AwaitingUserAction";
+            }
+
+            if (!workflow.DeploymentDetectedAt.HasValue)
+            {
+                Console.WriteLine("Returning: AwaitingUserAction (need to confirm deployment)");
+                return "AwaitingUserAction";
+            }
+
+            Console.WriteLine("Returning: Completed (all steps done)");
+            Console.WriteLine("=== End DeriveCodeFirstState Debug ===");
+            return "Completed";
+        }
+
+        private string GetCodeFirstManualActionDescription(ConfigCleanupContext workflow)
+        {
+            if (workflow.IsCompleted || !string.IsNullOrEmpty(workflow.ErrorMessage))
+                return "";
+
+            if (!workflow.CodeWorkStartedAt.HasValue)
+                return "Click to start working on code changes";
+
+            if (!workflow.PRCreatedAt.HasValue)
+                return "Click to create/link pull request";
+
+            if (!workflow.PRApprovedAt.HasValue)
+                return $"Waiting for PR approval: {workflow.PullRequestUrl}";
+
+            if (!workflow.PRMergedAt.HasValue)
+                return "Click to confirm PR has been merged";
+
+            if (!workflow.DeploymentDetectedAt.HasValue)
+                return "Click to confirm deployment is complete";
+
+            return "";
         }
 
         private string DeriveArchiveOnlyState(ConfigCleanupContext workflow)
@@ -645,6 +940,10 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                     return $"Click to start transformation of '{workflow.ConfigurationName}' to default values";
                 }
             }
+            else if (workflow.WorkflowType == WorkflowType.CodeFirst)
+            {
+                return GetCodeFirstManualActionDescription(workflow);
+            }
 
             return "";
         }
@@ -679,6 +978,50 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
             Console.WriteLine("Would return: Created");
             return "Created";
+        }
+
+        private string GetCodeFirstCurrentAction(ConfigCleanupContext workflow)
+        {
+            Console.WriteLine($"=== GetCodeFirstCurrentAction Debug ===");
+            Console.WriteLine($"CodeWorkStartedAt.HasValue: {workflow.CodeWorkStartedAt.HasValue}");
+            Console.WriteLine($"PRCreatedAt.HasValue: {workflow.PRCreatedAt.HasValue}");
+            Console.WriteLine($"PRApprovedAt.HasValue: {workflow.PRApprovedAt.HasValue}");
+            Console.WriteLine($"PRMergedAt.HasValue: {workflow.PRMergedAt.HasValue}");
+            Console.WriteLine($"DeploymentDetectedAt.HasValue: {workflow.DeploymentDetectedAt.HasValue}");
+
+            if (!workflow.CodeWorkStartedAt.HasValue)
+            {
+                Console.WriteLine("Returning: StartCodeWork");
+                return "StartCodeWork";
+            }
+
+            if (!workflow.PRCreatedAt.HasValue)
+            {
+                Console.WriteLine("Returning: CreatePR");
+                return "CreatePR"; // This will need the separate endpoint
+            }
+
+            if (!workflow.PRApprovedAt.HasValue)
+            {
+                Console.WriteLine("Returning: MarkPRApproved");
+                return "MarkPRApproved";
+            }
+
+            if (!workflow.PRMergedAt.HasValue)
+            {
+                Console.WriteLine("Returning: ConfirmMerge");
+                return "ConfirmMerge";
+            }
+
+            if (!workflow.DeploymentDetectedAt.HasValue)
+            {
+                Console.WriteLine("Returning: ConfirmDeployment");
+                return "ConfirmDeployment";
+            }
+
+            Console.WriteLine("Returning: Complete");
+            Console.WriteLine("=== End GetCodeFirstCurrentAction Debug ===");
+            return "Complete";
         }
     }
 }
