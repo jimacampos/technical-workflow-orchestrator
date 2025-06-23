@@ -1,0 +1,126 @@
+﻿.timeline {
+    position: relative;
+    padding-left: 0;
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 40px;
+    padding-bottom: 20px;
+}
+
+    .timeline-item:not(:last-child)::before {
+        content: '';
+        position: absolute;
+        left: 12px;
+        top: 25px;
+        bottom: -20px;
+        width: 2px;
+        background-color: #dee2e6;
+    }
+
+    .timeline-item.active::before {
+        background-color: #0d6efd;
+    }
+
+    .timeline-item.completed::before {
+        background-color: #198754;
+    }
+
+.timeline-marker {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: white;
+    border-radius: 50%;
+}
+
+.timeline-content {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 3px solid #dee2e6;
+}
+
+.timeline-item.active .timeline-content {
+    border-left-color: #0d6efd;
+    background-color: #f0f8ff;
+}
+
+.timeline-item.completed .timeline-content {
+    border-left-color: #198754;
+    background-color: #f0fff0;
+}
+
+.timeline-item.failed .timeline-content {
+    border-left-color: #dc3545;
+    background-color: #fff5f5;
+}
+.timeline {
+    position: relative;
+    padding-left: 0;
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 40px;
+    padding-bottom: 20px;
+}
+
+    .timeline-item:not(:last-child)::before {
+        content: '';
+        position: absolute;
+        left: 12px;
+        top: 25px;
+        bottom: -20px;
+        width: 2px;
+        background-color: #dee2e6;
+    }
+
+    .timeline-item.active::before {
+        background-color: #0d6efd;
+    }
+
+    .timeline-item.completed::before {
+        background-color: #198754;
+    }
+
+.timeline-marker {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: white;
+    border-radius: 50%;
+}
+
+.timeline-content {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 3px solid #dee2e6;
+}
+
+.timeline-item.active .timeline-content {
+    border-left-color: #0d6efd;
+    background-color: #f0f8ff;
+}
+
+.timeline-item.completed .timeline-content {
+    border-left-color: #198754;
+    background-color: #f0fff0;
+}
+
+.timeline-item.failed .timeline-content {
+    border-left-color: #dc3545;
+    background-color: #fff5f5;
+}

@@ -13,12 +13,6 @@ namespace TechWorklowOrchestrator.Core.Workflow
             : base(context, DetermineInitialState(context))
         {
             ConfigureStateMachine();
-            Console.WriteLine($"=== TransformToDefaultWorkflow Constructor Debug ===");
-            Console.WriteLine($"ConfigurationName: '{Context.ConfigurationName}'");
-            Console.WriteLine($"IsCompleted: {Context.IsCompleted}");
-            Console.WriteLine($"ErrorMessage: '{Context.ErrorMessage}'");
-            Console.WriteLine($"Determined Initial State: {CurrentState}");
-            Console.WriteLine($"=== End Constructor Debug ===");
         }
 
         private void ConfigureStateMachine()
@@ -56,17 +50,13 @@ namespace TechWorklowOrchestrator.Core.Workflow
         {
             try
             {
-                Console.WriteLine($"Transforming {Context.ConfigurationName} to default values");
-
                 // Simulate transformation work
                 await Task.Delay(2000); // Simulate API call
 
-                Console.WriteLine($"Transformation completed successfully");
                 await _stateMachine.FireAsync(WorkflowTrigger.TransformCompleted);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error during transformation: {ex.Message}");
                 Context.ErrorMessage = ex.Message;
                 await _stateMachine.FireAsync(WorkflowTrigger.Fail);
             }
@@ -74,44 +64,25 @@ namespace TechWorklowOrchestrator.Core.Workflow
 
         public override async Task<bool> CanStartAsync()
         {
-            Console.WriteLine($"=== CanStartAsync Debug ===");
-            Console.WriteLine($"ConfigurationName: '{Context.ConfigurationName}'");
-            Console.WriteLine($"IsEmpty: {string.IsNullOrEmpty(Context.ConfigurationName)}");
-            Console.WriteLine($"IsCompleted: {Context.IsCompleted}");
-            Console.WriteLine($"ErrorMessage: '{Context.ErrorMessage}'");
-            Console.WriteLine($"ErrorIsEmpty: {string.IsNullOrEmpty(Context.ErrorMessage)}");
-            Console.WriteLine($"CurrentState: {CurrentState}");
 
             var canStart = !string.IsNullOrEmpty(Context.ConfigurationName) &&
                           !Context.IsCompleted &&
                           string.IsNullOrEmpty(Context.ErrorMessage);
 
-            Console.WriteLine($"CanStartAsync result: {canStart}");
-            Console.WriteLine($"=== End CanStartAsync Debug ===");
             return canStart;
         }
 
         public override async Task StartAsync()
         {
-            Console.WriteLine($"=== StartAsync Debug ===");
-            Console.WriteLine($"Current state before start: {CurrentState}");
-
             if (await CanStartAsync())
             {
-                Console.WriteLine($"Starting TransformToDefault workflow for {Context.ConfigurationName}");
-
                 var startTime = DateTime.UtcNow;
-                Console.WriteLine($"Setting TransformStartedAt to: {startTime}");
                 Context.TransformStartedAt = startTime;
-                Console.WriteLine($"TransformStartedAt after setting: {Context.TransformStartedAt}");
 
-                Console.WriteLine($"Firing Start trigger...");
                 await _stateMachine.FireAsync(WorkflowTrigger.Start);
-                Console.WriteLine($"Start trigger fired, new state: {CurrentState}");
             }
             else
             {
-                Console.WriteLine("CanStartAsync returned false - cannot start workflow");
                 throw new InvalidOperationException("Cannot start TransformToDefault workflow - check configuration");
             }
         }
@@ -132,34 +103,21 @@ namespace TechWorklowOrchestrator.Core.Workflow
         // Methods for consistency with ArchiveOnlyWorkflow interface
         public bool CanProceed()
         {
-            Console.WriteLine($"=== CanProceed Debug ===");
-            Console.WriteLine($"CurrentState: {CurrentState}");
-            Console.WriteLine($"Expected state: {WorkflowState.AwaitingUserAction}");
-            Console.WriteLine($"States match: {CurrentState == WorkflowState.AwaitingUserAction}");
-
             var canProceed = CurrentState == WorkflowState.AwaitingUserAction;
-            Console.WriteLine($"CanProceed result: {canProceed}");
-            Console.WriteLine($"=== End CanProceed Debug ===");
-
+            
             return canProceed;
         }
 
         public async Task ProceedAsync()
         {
-            Console.WriteLine($"=== ProceedAsync Debug ===");
-            Console.WriteLine($"Current state: {CurrentState}");
 
             if (CurrentState != WorkflowState.AwaitingUserAction)
             {
                 var message = $"Cannot proceed: workflow is in {CurrentState} state, expected AwaitingUserAction";
-                Console.WriteLine(message);
                 throw new InvalidOperationException(message);
             }
 
-            Console.WriteLine($"User proceeding with transformation of {Context.ConfigurationName}");
-            Console.WriteLine($"Firing UserProceed trigger...");
             await _stateMachine.FireAsync(WorkflowTrigger.UserProceed);
-            Console.WriteLine($"UserProceed trigger fired, new state: {CurrentState}");
         }
 
         public string GetCurrentActionDescription()
@@ -186,35 +144,22 @@ namespace TechWorklowOrchestrator.Core.Workflow
 
         private static WorkflowState DetermineInitialState(ConfigCleanupContext context)
         {
-            Console.WriteLine($"=== DetermineInitialState Debug ===");
-            Console.WriteLine($"IsCompleted: {context.IsCompleted}");
-            Console.WriteLine($"ErrorMessage: '{context.ErrorMessage}'");
-            Console.WriteLine($"HasError: {!string.IsNullOrEmpty(context.ErrorMessage)}");
-            Console.WriteLine($"TransformStartedAt: {context.TransformStartedAt}");
-            Console.WriteLine($"HasBeenStarted: {context.TransformStartedAt.HasValue}");
-
             if (context.IsCompleted)
             {
-                Console.WriteLine("Returning: Completed");
                 return WorkflowState.Completed;
             }
 
             if (!string.IsNullOrEmpty(context.ErrorMessage))
             {
-                Console.WriteLine("Returning: Failed");
                 return WorkflowState.Failed;
             }
 
             // Check if workflow has been started - THIS WAS MISSING!
             if (context.TransformStartedAt.HasValue)
             {
-                Console.WriteLine("Returning: AwaitingUserAction (already started)");
                 return WorkflowState.AwaitingUserAction;
             }
 
-            // For TransformToDefault, if it's not completed, has no error, and hasn't been started
-            Console.WriteLine("Returning: Created");
-            Console.WriteLine($"=== End DetermineInitialState Debug ===");
             return WorkflowState.Created;
         }
     }
