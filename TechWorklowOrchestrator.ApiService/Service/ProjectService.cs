@@ -1,39 +1,49 @@
-﻿using TechWorklowOrchestrator.Core;
+﻿using TechWorklowOrchestrator.ApiService.Repository;
+using TechWorklowOrchestrator.Core;
 using TechWorklowOrchestrator.Core.Workflow;
 
 namespace TechWorklowOrchestrator.ApiService.Service
 {
     public class ProjectService : IProjectService
     {
-        private readonly List<Project> _projects = new List<Project>();
+        private readonly IProjectRepository _projectRepository;
+
+        public ProjectService(IProjectRepository projectRepository)
+        {
+            _projectRepository = projectRepository;
+        }
 
         public Project CreateProject(string name, ServiceName serviceName, string? description = null)
         {
             var project = new Project
             {
+                Id = Guid.NewGuid(),
                 Name = name,
                 ServiceName = serviceName,
                 Description = description,
-                Status = ProjectStatus.Active
+                Status = ProjectStatus.Active,
+                CleanupContexts = new List<ConfigCleanupContext>()
             };
 
-            _projects.Add(project);
+            _projectRepository.CreateProjectAsync(project).Wait();
             return project;
         }
 
         public List<Project> GetAllProjects()
         {
-            return _projects.ToList();
+            var projects = _projectRepository.GetAllProjectsAsync().Result;
+            return projects.ToList();
         }
 
         public List<Project> GetProjectsByService(ServiceName serviceName)
         {
-            return _projects.Where(p => p.ServiceName == serviceName).ToList();
+            var projects = _projectRepository.GetProjectsByServiceAsync(serviceName).Result;
+            return projects.ToList();
         }
 
         public Project? GetProjectById(Guid projectId)
         {
-            return _projects.FirstOrDefault(p => p.Id == projectId);
+            return _projectRepository.GetProjectByIdAsync(projectId).Result;
         }
 
         public void AddWorkflowToProject(Guid projectId, ConfigCleanupContext workflow)
@@ -41,7 +51,12 @@ namespace TechWorklowOrchestrator.ApiService.Service
             var project = GetProjectById(projectId);
             if (project != null)
             {
+                workflow.ProjectId = projectId;
+                _projectRepository.CreateWorkflowAsync(workflow).Wait();
+
+                // Also add to the project's collection for consistency
                 project.CleanupContexts.Add(workflow);
+                _projectRepository.UpdateProjectAsync(project).Wait();
             }
         }
 
@@ -55,60 +70,37 @@ namespace TechWorklowOrchestrator.ApiService.Service
 
             var workflow = new ConfigCleanupContext
             {
+                Id = Guid.NewGuid(),
                 ProjectId = projectId,
                 ConfigurationName = configurationName,
                 WorkflowType = workflowType,
                 CreatedAt = DateTime.UtcNow
             };
 
-            project.CleanupContexts.Add(workflow);
+            _projectRepository.CreateWorkflowAsync(workflow).Wait();
             return workflow;
         }
 
         public List<ConfigCleanupContext> GetWorkflowsByProject(Guid projectId)
         {
-            var project = GetProjectById(projectId);
-            return project?.CleanupContexts ?? new List<ConfigCleanupContext>();
+            var workflows = _projectRepository.GetWorkflowsByProjectAsync(projectId).Result;
+            return workflows.ToList();
         }
 
         public ConfigCleanupContext? GetWorkflowById(Guid workflowId)
         {
-            return _projects
-                .SelectMany(p => p.CleanupContexts)
-                .FirstOrDefault(w => w.Id == workflowId);
+            return _projectRepository.GetWorkflowByIdAsync(workflowId).Result;
         }
 
         public void UpdateWorkflow(ConfigCleanupContext workflow)
         {
-            var existingWorkflow = GetWorkflowById(workflow.Id);
-            if (existingWorkflow != null)
-            {
-                // Update common properties
-                existingWorkflow.CurrentTrafficPercentage = workflow.CurrentTrafficPercentage;
-                existingWorkflow.PullRequestUrl = workflow.PullRequestUrl;
-                existingWorkflow.WaitStartTime = workflow.WaitStartTime;
-                existingWorkflow.WaitDuration = workflow.WaitDuration;
-                existingWorkflow.ErrorMessage = workflow.ErrorMessage;
-                existingWorkflow.IsCompleted = workflow.IsCompleted;
-                
-                // Update TransformToDefault specific properties
-                existingWorkflow.TransformStartedAt = workflow.TransformStartedAt;
-
-                // Update ArchiveOnly specific properties
-                existingWorkflow.ArchiveConfiguration = workflow.ArchiveConfiguration;
-
-                // Update CodeFirst specific properties
-                existingWorkflow.CodeWorkStartedAt = workflow.CodeWorkStartedAt;
-                existingWorkflow.PRCreatedAt = workflow.PRCreatedAt;
-                existingWorkflow.PRApprovedAt = workflow.PRApprovedAt;
-                existingWorkflow.PRMergedAt = workflow.PRMergedAt;
-                existingWorkflow.DeploymentDetectedAt = workflow.DeploymentDetectedAt;
-            }
+            _projectRepository.UpdateWorkflowAsync(workflow).Wait();
         }
 
         public List<ConfigCleanupContext> GetAllWorkflows()
         {
-            return _projects.SelectMany(p => p.CleanupContexts).ToList();
+            var workflows = _projectRepository.GetAllWorkflowsAsync().Result;
+            return workflows.ToList();
         }
     }
 }

@@ -19,6 +19,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
 builder.Services.AddSingleton<IWorkflowRepository, InMemoryWorkflowRepository>();
 builder.Services.AddSingleton<IProjectService, ProjectService>();
+builder.Services.AddSingleton<IProjectRepository, InMemoryProjectRepository>();
 
 var app = builder.Build();
 
