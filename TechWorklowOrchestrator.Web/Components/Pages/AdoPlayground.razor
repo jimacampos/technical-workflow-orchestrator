@@ -1,0 +1,844 @@
+﻿@page "/ado-test"
+@rendermode InteractiveServer
+@using Microsoft.TeamFoundation.Build.WebApi
+@using Microsoft.TeamFoundation.Core.WebApi
+@using Microsoft.TeamFoundation.SourceControl.WebApi
+@using Microsoft.VisualStudio.Services.Common
+@using Microsoft.VisualStudio.Services.WebApi
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Azure DevOps Integration Test</PageTitle>
+
+<div class="container-fluid p-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>Azure DevOps Integration Test</h2>
+            <p class="text-muted">Test connection and data retrieval from Azure DevOps</p>
+        </div>
+    </div>
+
+    <!-- Connection Configuration -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Connection Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="orgUrl" class="form-label">Organization URL</label>
+                        <input type="text" class="form-control" id="orgUrl" @bind="organizationUrl" 
+                               placeholder="https://dev.azure.com/yourorg" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="pat" class="form-label">Personal Access Token</label>
+                        <input type="password" class="form-control" id="pat" @bind="personalAccessToken" 
+                               placeholder="Enter your PAT" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="project" class="form-label">Project Name</label>
+                        <input type="text" class="form-control" id="project" @bind="projectName" 
+                               placeholder="Your project name" />
+                    </div>
+                    <button class="btn btn-primary" @onclick="TestConnection" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Test Connection
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Connection Status -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Connection Status</h5>
+                </div>
+                <div class="card-body">
+                    @if (connectionStatus != null)
+                    {
+                        <div class="alert @(connectionStatus.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+                            <strong>@(connectionStatus.IsSuccess ? "✓ Connected" : "✗ Connection Failed")</strong>
+                            <br />
+                            @connectionStatus.Message
+                        </div>
+                        
+                        @if (connectionStatus.IsSuccess && projects.Any())
+                        {
+                            <h6>Available Projects:</h6>
+                            <ul class="list-group list-group-flush">
+                                @foreach (var proj in projects.Take(5))
+                                {
+                                    <li class="list-group-item px-0">
+                                        <strong>@proj.Name</strong>
+                                        <br />
+                                        <small class="text-muted">@proj.Description</small>
+                                    </li>
+                                }
+                            </ul>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pull Request Testing -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Pull Request Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="repoName" class="form-label">Repository Name</label>
+                            <input type="text" class="form-control" id="repoName" @bind="repositoryName" 
+                                   placeholder="Repository name" />
+                        </div>
+                        <div class="col-md-6">
+                            <label for="prId" class="form-label">Pull Request ID</label>
+                            <input type="number" class="form-control" id="prId" @bind="pullRequestId" 
+                                   placeholder="PR ID number" />
+                        </div>
+                    </div>
+                    <button class="btn btn-info me-2" @onclick="GetPullRequestInfo" disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                        @if (isLoadingPR)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Get PR Info
+                    </button>
+                    <button class="btn btn-secondary" @onclick="GetRecentPullRequests" disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                        Get Recent PRs
+                    </button>
+                    
+                    @if (pullRequestInfo != null)
+                    {
+                        <div class="mt-3">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h6>Pull Request Details</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Title:</strong> @pullRequestInfo.Title<br />
+                                            <strong>Status:</strong> 
+                                            <span class="badge @GetStatusBadgeClass(pullRequestInfo.Status.ToString())">
+                                                @pullRequestInfo.Status
+                                            </span><br />
+                                            <strong>Created:</strong> @pullRequestInfo.CreationDate.ToString("yyyy-MM-dd HH:mm")<br />
+                                            <strong>Created By:</strong> @pullRequestInfo.CreatedBy.DisplayName
+                                        </div>
+                                        <div class="col-md-6">
+                                            <strong>Source Branch:</strong> @pullRequestInfo.SourceRefName<br />
+                                            <strong>Target Branch:</strong> @pullRequestInfo.TargetRefName<br />
+                                            <strong>Repository:</strong> @pullRequestInfo.Repository.Name<br />
+                                            @if (pullRequestInfo.MergeStatus != null)
+                                            {
+                                                <strong>Merge Status:</strong> @pullRequestInfo.MergeStatus<br />
+                                            }
+                                        </div>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(pullRequestInfo.Description))
+                                    {
+                                        <div class="mt-2">
+                                            <strong>Description:</strong>
+                                            <div class="border p-2 mt-1" style="max-height: 150px; overflow-y: auto;">
+                                                @pullRequestInfo.Description
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (recentPullRequests.Any())
+                    {
+                        <div class="mt-3">
+                            <h6>Recent Pull Requests</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Title</th>
+                                            <th>Status</th>
+                                            <th>Created</th>
+                                            <th>Author</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var pr in recentPullRequests.Take(10))
+                                        {
+                                            <tr>
+                                                <td>@pr.PullRequestId</td>
+                                                <td>@pr.Title</td>
+                                                <td>
+                                                    <span class="badge @GetStatusBadgeClass(pr.Status.ToString())">
+                                                        @pr.Status
+                                                    </span>
+                                                </td>
+                                                <td>@pr.CreationDate.ToString("MM/dd HH:mm")</td>
+                                                <td>@pr.CreatedBy.DisplayName</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployment Information -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Deployment Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="buildDefId" class="form-label">Build Definition ID (optional)</label>
+                            <input type="number" class="form-control" id="buildDefId" @bind="buildDefinitionId" 
+                                   placeholder="Leave empty for all builds" />
+                        </div>
+                        <div class="col-md-6">
+                            <label for="buildCount" class="form-label">Number of Builds to Retrieve</label>
+                            <input type="number" class="form-control" id="buildCount" @bind="buildCount" min="1" max="50" />
+                        </div>
+                    </div>
+                    <button class="btn btn-warning me-2" @onclick="GetDeploymentInfo" disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                        @if (isLoadingDeployment)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Get Deployment Info
+                    </button>
+                    <button class="btn btn-secondary" @onclick="GetBuildDefinitions" disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                        Get Build Definitions
+                    </button>
+
+                    @if (builds.Any())
+                    {
+                        <div class="mt-3">
+                            <h6>Recent Builds/Deployments</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Build #</th>
+                                            <th>Definition</th>
+                                            <th>Status</th>
+                                            <th>Result</th>
+                                            <th>Started</th>
+                                            <th>Finished</th>
+                                            <th>Requested By</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var build in builds)
+                                        {
+                                            <tr>
+                                                <td>@build.BuildNumber</td>
+                                                <td>@build.Definition.Name</td>
+                                                <td>
+                                                    <span class="badge @GetBuildStatusBadgeClass(build.Status.ToString())">
+                                                        @build.Status
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if (build.Result != null)
+                                                    {
+                                                        <span class="badge @GetBuildResultBadgeClass(build.Result.ToString())">
+                                                            @build.Result
+                                                        </span>
+                                                    }
+                                                </td>
+                                                <td>@build.StartTime?.ToString("MM/dd HH:mm")</td>
+                                                <td>@build.FinishTime?.ToString("MM/dd HH:mm")</td>
+                                                <td>@build.RequestedBy?.DisplayName</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+
+                    @if (buildDefinitions.Any())
+                    {
+                        <div class="mt-3">
+                            <h6>Available Build Definitions</h6>
+                            <div class="row">
+                                @foreach (var def in buildDefinitions.Take(12))
+                                {
+                                    <div class="col-md-4 mb-2">
+                                        <div class="card card-sm">
+                                            <div class="card-body p-2">
+                                                <strong>@def.Name</strong> (ID: @def.Id)<br />
+                                                <small class="text-muted">@def.Path</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Specific Build Information -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Specific Build Information</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="specificBuildId" class="form-label">Build ID</label>
+                            <input type="number" class="form-control" id="specificBuildId" @bind="specificBuildId" 
+                                   placeholder="Enter specific build ID" />
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button class="btn btn-success" @onclick="GetSpecificBuildInfo" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true || !specificBuildId.HasValue)">
+                                @if (isLoadingSpecificBuild)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                Get Build Details
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (specificBuildInfo != null)
+                    {
+                        <!-- Build Overview -->
+                        <div class="card bg-light mb-3">
+                            <div class="card-header">
+                                <h6>Build Overview</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <strong>Build Number:</strong> @specificBuildInfo.BuildNumber<br />
+                                        <strong>Definition:</strong> @specificBuildInfo.Definition.Name<br />
+                                        <strong>Status:</strong> 
+                                        <span class="badge @GetBuildStatusBadgeClass(specificBuildInfo.Status.ToString())">
+                                            @specificBuildInfo.Status
+                                        </span><br />
+                                        <strong>Result:</strong> 
+                                        @if (specificBuildInfo.Result != null)
+                                        {
+                                            <span class="badge @GetBuildResultBadgeClass(specificBuildInfo.Result.ToString())">
+                                                @specificBuildInfo.Result
+                                            </span>
+                                        }
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>Started:</strong> @specificBuildInfo.StartTime?.ToString("yyyy-MM-dd HH:mm:ss")<br />
+                                        <strong>Finished:</strong> @specificBuildInfo.FinishTime?.ToString("yyyy-MM-dd HH:mm:ss")<br />
+                                        <strong>Duration:</strong> @FormatDuration(specificBuildInfo.StartTime, specificBuildInfo.FinishTime)<br />
+                                        <strong>Requested By:</strong> @specificBuildInfo.RequestedBy?.DisplayName<br />
+                                        <strong>Source Branch:</strong> @specificBuildInfo.SourceBranch
+                                    </div>
+                                </div>
+                                @if (!string.IsNullOrEmpty(specificBuildInfo.Repository?.Name))
+                                {
+                                    <div class="mt-2">
+                                        <strong>Repository:</strong> @specificBuildInfo.Repository.Name<br />
+                                        <strong>Source Version:</strong> @specificBuildInfo.SourceVersion
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Build Timeline (Tasks) -->
+                        @if (buildTimeline?.Records?.Any() == true)
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Build Tasks Timeline</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Task</th>
+                                                    <th>Type</th>
+                                                    <th>Result</th>
+                                                    <th>Started</th>
+                                                    <th>Finished</th>
+                                                    <th>Duration</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var record in buildTimeline.Records.Where(r => !string.IsNullOrEmpty(r.Name)).OrderBy(r => r.StartTime))
+                                                {
+                                                    <tr>
+                                                        <td>@record.Name</td>
+                                                        <td>@record.RecordType</td>
+                                                        <td>
+                                                            @if (record.Result != null)
+                                                            {
+                                                                <span class="badge bg-@GetTaskResult(record.Result.ToString())">
+                                                                    @record.Result
+                                                                </span>
+                                                            }
+                                                        </td>
+                                                        <td>@record.StartTime?.ToString("HH:mm:ss")</td>
+                                                        <td>@record.FinishTime?.ToString("HH:mm:ss")</td>
+                                                        <td>@FormatDuration(record.StartTime, record.FinishTime)</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Build Logs -->
+                        @if (buildLogs.Any())
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Build Logs</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <h6>Available Logs:</h6>
+                                            <div class="list-group">
+                                                @foreach (var log in buildLogs)
+                                                {
+                                                    <button type="button" 
+                                                            class="list-group-item list-group-item-action @(selectedLogId == log.Id ? "active" : "")"
+                                                            @onclick="() => GetLogContent(log.Id)">
+                                                        <strong>Log @log.Id</strong>
+                                                        <br /><small>@log.LineCount lines</small>
+                                                    </button>
+                                                }
+                                            </div>
+                                        </div>
+                                        <div class="col-md-8">
+                                            @if (!string.IsNullOrEmpty(selectedLogContent))
+                                            {
+                                                <h6>Log Content (Log @selectedLogId):</h6>
+                                                <div class="border p-2" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa; font-family: monospace; font-size: 0.85em;">
+                                                    <pre style="margin: 0; white-space: pre-wrap;">@selectedLogContent</pre>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="text-muted">Select a log to view its content</div>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Build Artifacts -->
+                        @if (buildArtifacts.Any())
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Build Artifacts</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <th>Name</th>
+                                                    <th>Source</th>
+                                                    <th>Resource</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var artifact in buildArtifacts)
+                                                {
+                                                    <tr>
+                                                        <td>@artifact.Name</td>
+                                                        <td>@artifact.Source</td>
+                                                        <td>
+                                                            @if (artifact.Resource?.Properties?.ContainsKey("localpath") == true)
+                                                            {
+                                                                <small class="text-muted">@artifact.Resource.Properties["localpath"]</small>
+                                                            }
+                                                            else if (artifact.Resource?.DownloadUrl != null)
+                                                            {
+                                                                <a href="@artifact.Resource.DownloadUrl" target="_blank" class="btn btn-sm btn-outline-primary">Download</a>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Display -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-danger" role="alert">
+                    <strong>Error:</strong> @errorMessage
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // Connection properties
+    private string organizationUrl = "https://dev.azure.com/yourorg";
+    private string personalAccessToken = "";
+    private string projectName = "";
+    
+    // Pull Request properties
+    private string repositoryName = "";
+    private int? pullRequestId;
+    private GitPullRequest? pullRequestInfo;
+    private List<GitPullRequest> recentPullRequests = new();
+    
+    // Deployment properties
+    private int? buildDefinitionId;
+    private int buildCount = 10;
+    private List<Build> builds = new();
+    private List<BuildDefinitionReference> buildDefinitions = new();
+    
+    // State management
+    private bool isLoading = false;
+    private bool isLoadingPR = false;
+    private bool isLoadingDeployment = false;
+    private ConnectionStatus? connectionStatus;
+    private List<TeamProjectReference> projects = new();
+    private string errorMessage = "";
+    
+    // ADO clients
+    private VssConnection? connection;
+    private ProjectHttpClient? projectClient;
+    private GitHttpClient? gitClient;
+    private BuildHttpClient? buildClient;
+
+    // Specific Build Information properties
+    private int? specificBuildId;
+    private Build? specificBuildInfo;
+    private Timeline? buildTimeline;
+    private List<BuildLog> buildLogs = new();
+    private List<BuildArtifact> buildArtifacts = new();
+    private string selectedLogContent = "";
+    private int? selectedLogId;
+    private bool isLoadingSpecificBuild = false;
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(organizationUrl) || string.IsNullOrWhiteSpace(personalAccessToken))
+        {
+            errorMessage = "Please provide both Organization URL and Personal Access Token";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = "";
+        connectionStatus = null;
+        
+        try
+        {
+            var credentials = new VssBasicCredential(string.Empty, personalAccessToken);
+            connection = new VssConnection(new Uri(organizationUrl), credentials);
+            
+            projectClient = connection.GetClient<ProjectHttpClient>();
+            gitClient = connection.GetClient<GitHttpClient>();
+            buildClient = connection.GetClient<BuildHttpClient>();
+            
+            // Test connection by getting projects
+            var projectList = await projectClient.GetProjects();
+            projects = projectList.ToList();
+            
+            connectionStatus = new ConnectionStatus 
+            { 
+                IsSuccess = true, 
+                Message = $"Successfully connected! Found {projects.Count} projects." 
+            };
+        }
+        catch (Exception ex)
+        {
+            connectionStatus = new ConnectionStatus 
+            { 
+                IsSuccess = false, 
+                Message = $"Connection failed: {ex.Message}" 
+            };
+            errorMessage = ex.ToString();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task GetPullRequestInfo()
+    {
+        if (gitClient == null || string.IsNullOrWhiteSpace(repositoryName) || !pullRequestId.HasValue)
+        {
+            errorMessage = "Please ensure connection is established and provide repository name and PR ID";
+            return;
+        }
+
+        isLoadingPR = true;
+        errorMessage = "";
+        pullRequestInfo = null;
+        
+        try
+        {
+            pullRequestInfo = await gitClient.GetPullRequestAsync(
+                projectName, 
+                repositoryName, 
+                pullRequestId.Value
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get PR info: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingPR = false;
+        }
+    }
+
+    private async Task GetRecentPullRequests()
+    {
+        if (gitClient == null || string.IsNullOrWhiteSpace(repositoryName))
+        {
+            errorMessage = "Please ensure connection is established and provide repository name";
+            return;
+        }
+
+        isLoadingPR = true;
+        errorMessage = "";
+        recentPullRequests.Clear();
+        
+        try
+        {
+            var searchCriteria = new GitPullRequestSearchCriteria
+            {
+                Status = PullRequestStatus.All
+            };
+            
+            recentPullRequests = await gitClient.GetPullRequestsAsync(
+                projectName, 
+                repositoryName, 
+                searchCriteria,
+                top: 20
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get recent PRs: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingPR = false;
+        }
+    }
+
+    private async Task GetDeploymentInfo()
+    {
+        if (buildClient == null)
+        {
+            errorMessage = "Please ensure connection is established";
+            return;
+        }
+
+        isLoadingDeployment = true;
+        errorMessage = "";
+        builds.Clear();
+        
+        try
+        {
+            builds = await buildClient.GetBuildsAsync(
+                projectName,
+                definitions: buildDefinitionId.HasValue ? new[] { buildDefinitionId.Value } : null,
+                top: buildCount
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get deployment info: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDeployment = false;
+        }
+    }
+
+    private async Task GetBuildDefinitions()
+    {
+        if (buildClient == null)
+        {
+            errorMessage = "Please ensure connection is established";
+            return;
+        }
+
+        isLoadingDeployment = true;
+        errorMessage = "";
+        buildDefinitions.Clear();
+        
+        try
+        {
+            buildDefinitions = await buildClient.GetDefinitionsAsync(projectName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get build definitions: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDeployment = false;
+        }
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Active" => "bg-primary",
+        "Completed" => "bg-success",
+        "Abandoned" => "bg-secondary",
+        _ => "bg-info"
+    };
+
+    private string GetBuildStatusBadgeClass(string status) => status switch
+    {
+        "InProgress" => "bg-primary",
+        "Completed" => "bg-success",
+        "Cancelling" => "bg-warning",
+        "NotStarted" => "bg-secondary",
+        _ => "bg-info"
+    };
+
+    private string GetBuildResultBadgeClass(string result) => result switch
+    {
+        "Succeeded" => "bg-success",
+        "Failed" => "bg-danger",
+        "Canceled" => "bg-secondary",
+        "PartiallySucceeded" => "bg-warning",
+        _ => "bg-info"
+    };
+
+    private async Task GetSpecificBuildInfo()
+    {
+        if (buildClient == null || !specificBuildId.HasValue)
+        {
+            errorMessage = "Please ensure connection is established and provide a build ID";
+            return;
+        }
+
+        isLoadingSpecificBuild = true;
+        errorMessage = "";
+        specificBuildInfo = null;
+        buildTimeline = null;
+        buildLogs.Clear();
+        buildArtifacts.Clear();
+        selectedLogContent = "";
+
+        try
+        {
+            // Get basic build information
+            specificBuildInfo = await buildClient.GetBuildAsync(projectName, specificBuildId.Value);
+
+            // Get build timeline (tasks and phases)
+            buildTimeline = await buildClient.GetBuildTimelineAsync(projectName, specificBuildId.Value);
+
+            // Get build logs
+            buildLogs = await buildClient.GetBuildLogsAsync(projectName, specificBuildId.Value);
+
+            // Get build artifacts
+            buildArtifacts = await buildClient.GetArtifactsAsync(projectName, specificBuildId.Value);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get specific build info: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingSpecificBuild = false;
+        }
+    }
+
+    private async Task GetLogContent(int logId)
+    {
+        if (buildClient == null || !specificBuildId.HasValue)
+        {
+            errorMessage = "Please ensure connection is established and build is selected";
+            return;
+        }
+
+        try
+        {
+            selectedLogId = logId;
+            using var logStream = await buildClient.GetBuildLogAsync(projectName, specificBuildId.Value, logId);
+            using var reader = new StreamReader(logStream);
+            selectedLogContent = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get log content: {ex.Message}";
+            selectedLogContent = "";
+        }
+    }
+
+    private string GetTaskResult(string? result) => result switch
+    {
+        "Succeeded" => "success",
+        "Failed" => "danger",
+        "Canceled" => "secondary",
+        "Skipped" => "warning",
+        _ => "info"
+    };
+
+    private string FormatDuration(DateTime? start, DateTime? finish)
+    {
+        if (!start.HasValue || !finish.HasValue) return "N/A";
+
+        var duration = finish.Value - start.Value;
+        if (duration.TotalDays >= 1)
+            return $"{duration.Days}d {duration.Hours}h {duration.Minutes}m";
+        else if (duration.TotalHours >= 1)
+            return $"{duration.Hours}h {duration.Minutes}m {duration.Seconds}s";
+        else if (duration.TotalMinutes >= 1)
+            return $"{duration.Minutes}m {duration.Seconds}s";
+        else
+            return $"{duration.Seconds}s";
+    }
+
+    public class ConnectionStatus
+    {
+        public bool IsSuccess { get; set; }
+        public string Message { get; set; } = "";
+    }
+
+}
