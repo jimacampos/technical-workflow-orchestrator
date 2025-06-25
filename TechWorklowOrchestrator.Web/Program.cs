@@ -27,6 +27,7 @@ builder.Services.AddHttpClient("WorkflowAPI", client =>
 
 builder.Services.AddScoped<IWorkflowApiService, WorkflowApiService>();
 builder.Services.AddSingleton<IProjectApiService, ProjectApiService>();
+builder.Services.AddSingleton<IAzureDevOpsTaskService, AzureDevOpsTaskService>();
 
 var app = builder.Build();
 

@@ -1,0 +1,881 @@
+﻿@page "/ado-tasks"
+@rendermode InteractiveServer
+@using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models
+@using TechWorklowOrchestrator.Web.Services
+@using TechWorklowOrchestrator.Web.Models
+@inject IAzureDevOpsTaskService TaskService
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Azure DevOps Task Management</PageTitle>
+
+<div class="container-fluid p-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>Azure DevOps Task Management</h2>
+            <p class="text-muted">Test and manage work items, tasks, and project tracking</p>
+        </div>
+    </div>
+
+    <!-- Connection Configuration -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Connection Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="orgUrl" class="form-label">Organization URL</label>
+                        <input type="text" class="form-control" id="orgUrl" @bind="organizationUrl" 
+                               placeholder="https://dev.azure.com/yourorg" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="pat" class="form-label">Personal Access Token</label>
+                        <input type="password" class="form-control" id="pat" @bind="personalAccessToken" 
+                               placeholder="Enter your PAT" />
+                    </div>
+                    <div class="mb-3">
+                        <label for="project" class="form-label">Project Name</label>
+                        <input type="text" class="form-control" id="project" @bind="projectName" 
+                               placeholder="Your project name" />
+                    </div>
+                    <button class="btn btn-primary" @onclick="TestConnection" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Test Connection
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Connection Status -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Connection Status</h5>
+                </div>
+                <div class="card-body">
+                    @if (connectionStatus != null)
+                    {
+                        <div class="alert @(connectionStatus.IsSuccess ? "alert-success" : "alert-danger")" role="alert">
+                            <strong>@(connectionStatus.IsSuccess ? "✓ Connected" : "✗ Connection Failed")</strong>
+                            <br />
+                            @connectionStatus.Message
+                        </div>
+                        
+                        @if (connectionStatus.IsSuccess && workItemTypes.Any())
+                        {
+                            <h6>Available Work Item Types:</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var type in workItemTypes.Take(8))
+                                {
+                                    <span class="badge bg-secondary">@type.Name</span>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Work Item Queries -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Work Item Queries</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <button class="btn btn-info w-100 mb-2" @onclick="GetMyWorkItems" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                                @if (isLoadingWorkItems)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                My Work Items
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-secondary w-100 mb-2" @onclick="GetRecentWorkItems" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                                Recent Work Items
+                            </button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-outline-primary w-100 mb-2" @onclick="GetWorkItemTypes" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true)">
+                                Get Work Item Types
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Query -->
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="stateFilter" class="form-label">Filter by State</label>
+                            <select class="form-select" @bind="selectedState">
+                                <option value="">All States</option>
+                                <option value="New">New</option>
+                                <option value="Active">Active</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                                <option value="Closed">Closed</option>
+                                <option value="Done">Done</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="assigneeFilter" class="form-label">Filter by Assignee</label>
+                            <input type="text" class="form-control" @bind="selectedAssignee" 
+                                   placeholder="User name or Me" />
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <button class="btn btn-warning" @onclick="GetWorkItemsByState" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true || string.IsNullOrEmpty(selectedState))">
+                                Filter by State
+                            </button>
+                        </div>
+                        <div class="col-md-6">
+                            <button class="btn btn-warning" @onclick="GetWorkItemsByAssignee" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true || string.IsNullOrEmpty(selectedAssignee))">
+                                Filter by Assignee
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Work Items Results -->
+                    @if (workItems.Any())
+                    {
+                        <div class="mt-3">
+                            <h6>Work Items (@workItems.Count found)</h6>
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Type</th>
+                                            <th>Title</th>
+                                            <th>State</th>
+                                            <th>Assigned To</th>
+                                            <th>Created</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var item in workItems.Take(20))
+                                        {
+                                            <tr>
+                                                <td>@item.Id</td>
+                                                <td>
+                                                    <span class="badge @GetWorkItemTypeBadgeClass(item.Fields["System.WorkItemType"]?.ToString())">
+                                                        @item.Fields["System.WorkItemType"]
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <strong>@item.Fields["System.Title"]</strong>
+                                                    @if (item.Fields.ContainsKey("System.Description") && !string.IsNullOrEmpty(item.Fields["System.Description"]?.ToString()))
+                                                    {
+                                                        <br /><small class="text-muted">@GetTruncatedText(item.Fields["System.Description"]?.ToString(), 80)</small>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <span class="badge @GetStateBadgeClass(item.Fields["System.State"]?.ToString())">
+                                                        @item.Fields["System.State"]
+                                                    </span>
+                                                </td>
+                                                <td>@GetAssignedTo(item.Fields)</td>
+                                                <td>@GetCreatedDate(item.Fields)</td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => ViewWorkItemDetails(item.Id.Value)">
+                                                        View
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Specific Work Item Details -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Work Item Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="workItemId" class="form-label">Work Item ID</label>
+                            <input type="number" class="form-control" @bind="specificWorkItemId" 
+                                   placeholder="Enter work item ID" />
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button class="btn btn-success me-2" @onclick="GetWorkItemDetails" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true || !specificWorkItemId.HasValue)">
+                                @if (isLoadingDetails)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                Get Details
+                            </button>
+                            <button class="btn btn-info" @onclick="GetWorkItemComments" 
+                                    disabled="@(isLoading || connectionStatus?.IsSuccess != true || !specificWorkItemId.HasValue)">
+                                Get Comments
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (selectedWorkItem != null)
+                    {
+                        <!-- Work Item Overview -->
+                        <div class="card bg-light mb-3">
+                            <div class="card-header">
+                                <h6>Work Item Overview</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <strong>ID:</strong> @selectedWorkItem.Id<br />
+                                        <strong>Title:</strong> @selectedWorkItem.Fields["System.Title"]<br />
+                                        <strong>Type:</strong> 
+                                        <span class="badge @GetWorkItemTypeBadgeClass(selectedWorkItem.Fields["System.WorkItemType"]?.ToString())">
+                                            @selectedWorkItem.Fields["System.WorkItemType"]
+                                        </span><br />
+                                        <strong>State:</strong> 
+                                        <span class="badge @GetStateBadgeClass(selectedWorkItem.Fields["System.State"]?.ToString())">
+                                            @selectedWorkItem.Fields["System.State"]
+                                        </span>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <strong>Assigned To:</strong> @GetAssignedTo(selectedWorkItem.Fields)<br />
+                                        <strong>Created:</strong> @GetCreatedDate(selectedWorkItem.Fields)<br />
+                                        <strong>Changed:</strong> @GetChangedDate(selectedWorkItem.Fields)<br />
+                                        @if (selectedWorkItem.Fields.ContainsKey("System.IterationPath"))
+                                        {
+                                            <strong>Iteration:</strong> @selectedWorkItem.Fields["System.IterationPath"]<br />
+                                        }
+                                        @if (selectedWorkItem.Fields.ContainsKey("System.AreaPath"))
+                                        {
+                                            <strong>Area:</strong> @selectedWorkItem.Fields["System.AreaPath"]<br />
+                                        }
+                                    </div>
+                                </div>
+                                
+                                @if (selectedWorkItem.Fields.ContainsKey("System.Description") && !string.IsNullOrEmpty(selectedWorkItem.Fields["System.Description"]?.ToString()))
+                                {
+                                    <div class="mt-3">
+                                        <strong>Description:</strong>
+                                        <div class="border p-2 mt-1" style="max-height: 200px; overflow-y: auto;">
+                                            @((MarkupString)(selectedWorkItem.Fields["System.Description"]?.ToString() ?? ""))
+                                        </div>
+                                    </div>
+                                }
+
+                                @if (selectedWorkItem.Fields.ContainsKey("Microsoft.VSTS.Common.AcceptanceCriteria") && !string.IsNullOrEmpty(selectedWorkItem.Fields["Microsoft.VSTS.Common.AcceptanceCriteria"]?.ToString()))
+                                {
+                                    <div class="mt-3">
+                                        <strong>Acceptance Criteria:</strong>
+                                        <div class="border p-2 mt-1" style="max-height: 150px; overflow-y: auto;">
+                                            @((MarkupString)(selectedWorkItem.Fields["Microsoft.VSTS.Common.AcceptanceCriteria"]?.ToString() ?? ""))
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Work Item Comments -->
+                        @if (workItemComments.Any())
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Comments (@workItemComments.Count)</h6>
+                                </div>
+                                <div class="card-body">
+                                    @foreach (var comment in workItemComments.OrderByDescending(c => c.RevisedDate))
+                                    {
+                                        <div class="border-bottom pb-2 mb-2">
+                                            <div class="d-flex justify-content-between">
+                                                <strong>@comment.RevisedBy.DisplayName</strong>
+                                                <small class="text-muted">@comment.RevisedDate.ToString("yyyy-MM-dd HH:mm")</small>
+                                            </div>
+                                            <div class="mt-1">@comment.Text</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        <!-- Work Item Updates/History -->
+                        @if (workItemUpdates.Any())
+                        {
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6>Update History (@workItemUpdates.Count updates)</h6>
+                                </div>
+                                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                                    @foreach (var update in workItemUpdates.OrderByDescending(u => u.RevisedDate))
+                                    {
+                                        <div class="border-bottom pb-2 mb-2">
+                                            <div class="d-flex justify-content-between">
+                                                <strong>@update.RevisedBy?.DisplayName</strong>
+                                                <small class="text-muted">@update.RevisedDate.ToString("yyyy-MM-dd HH:mm")</small>
+                                            </div>
+                                            @if (update.Fields != null && update.Fields.Any())
+                                            {
+                                                <div class="mt-1">
+                                                    <small>Changed fields:</small>
+                                                    @foreach (var field in update.Fields.Take(5))
+                                                    {
+                                                        <div class="ms-2">
+                                                            <strong>@GetFieldDisplayName(field.Key):</strong> 
+                                                            @if (field.Value.OldValue != null)
+                                                            {
+                                                                <span class="text-muted text-decoration-line-through">@field.Value.OldValue</span>
+                                                            }
+                                                            → <span class="text-success">@field.Value.NewValue</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Work Item -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Create New Work Item</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="newWorkItemType" class="form-label">Work Item Type</label>
+                            <select class="form-select" @bind="newWorkItemType">
+                                <option value="">Select Type</option>
+                                @foreach (var type in workItemTypes)
+                                {
+                                    <option value="@type.Name">@type.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-8">
+                            <label for="newWorkItemTitle" class="form-label">Title</label>
+                            <input type="text" class="form-control" @bind="newWorkItemTitle" 
+                                   placeholder="Enter work item title" />
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="newWorkItemDescription" class="form-label">Description</label>
+                        <textarea class="form-control" rows="3" @bind="newWorkItemDescription" 
+                                  placeholder="Enter description (optional)"></textarea>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="newWorkItemAssignee" class="form-label">Assigned To</label>
+                            <input type="text" class="form-control" @bind="newWorkItemAssignee" 
+                                   placeholder="User email or leave empty" />
+                        </div>
+                        <div class="col-md-6">
+                            <label for="newWorkItemPriority" class="form-label">Priority</label>
+                            <select class="form-select" @bind="newWorkItemPriority">
+                                <option value="4">4 - Low</option>
+                                <option value="3">3 - Medium</option>
+                                <option value="2" selected>2 - High</option>
+                                <option value="1">1 - Critical</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-success" @onclick="CreateWorkItem" 
+                            disabled="@(isLoading || connectionStatus?.IsSuccess != true || string.IsNullOrEmpty(newWorkItemType) || string.IsNullOrEmpty(newWorkItemTitle))">
+                        @if (isCreatingWorkItem)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Create Work Item
+                    </button>
+
+                    @if (createdWorkItem != null)
+                    {
+                        <div class="alert alert-success mt-3" role="alert">
+                            <strong>✓ Work Item Created!</strong><br />
+                            ID: @createdWorkItem.Id - @createdWorkItem.Fields["System.Title"]
+                            <br />
+                            <button class="btn btn-sm btn-outline-success mt-2" @onclick="() => ViewWorkItemDetails(createdWorkItem.Id.Value)">
+                                View Details
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Work Item -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Update Work Item</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label for="updateWorkItemId" class="form-label">Work Item ID</label>
+                            <input type="number" class="form-control" @bind="updateWorkItemId" 
+                                   placeholder="Enter work item ID" />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="updateState" class="form-label">New State</label>
+                            <select class="form-select" @bind="updateState">
+                                <option value="">Don't Change</option>
+                                <option value="New">New</option>
+                                <option value="Active">Active</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Resolved">Resolved</option>
+                                <option value="Closed">Closed</option>
+                                <option value="Done">Done</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="updateAssignee" class="form-label">Assigned To</label>
+                            <input type="text" class="form-control" @bind="updateAssignee" 
+                                   placeholder="User email or leave empty" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="updateComment" class="form-label">Comment</label>
+                        <textarea class="form-control" rows="2" @bind="updateComment" 
+                                  placeholder="Add a comment about this update (optional)"></textarea>
+                    </div>
+
+                    <button class="btn btn-warning" @onclick="UpdateWorkItem" 
+                            disabled="@(isLoading || connectionStatus?.IsSuccess != true || !updateWorkItemId.HasValue)">
+                        @if (isUpdatingWorkItem)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Update Work Item
+                    </button>
+
+                    @if (updatedWorkItem != null)
+                    {
+                        <div class="alert alert-info mt-3" role="alert">
+                            <strong>✓ Work Item Updated!</strong><br />
+                            ID: @updatedWorkItem.Id - @updatedWorkItem.Fields["System.Title"]
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Display -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-danger" role="alert">
+                    <strong>Error:</strong> @errorMessage
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // Connection properties
+    private string organizationUrl = "https://dev.azure.com/yourorg";
+    private string personalAccessToken = "";
+    private string projectName = "";
+    
+    // State management
+    private bool isLoading = false;
+    private bool isLoadingWorkItems = false;
+    private bool isLoadingDetails = false;
+    private bool isCreatingWorkItem = false;
+    private bool isUpdatingWorkItem = false;
+    private AdoConnectionResult? connectionStatus;
+    private string errorMessage = "";
+    
+    // Work Item data
+    private List<WorkItem> workItems = new();
+    private List<WorkItemType> workItemTypes = new();
+    private WorkItem? selectedWorkItem;
+    private List<WorkItemComment> workItemComments = new();
+    private List<WorkItemUpdate> workItemUpdates = new();
+    
+    // Filters and queries
+    private string selectedState = "";
+    private string selectedAssignee = "";
+    private int? specificWorkItemId;
+    
+    // Create work item
+    private string newWorkItemType = "";
+    private string newWorkItemTitle = "";
+    private string newWorkItemDescription = "";
+    private string newWorkItemAssignee = "";
+    private string newWorkItemPriority = "2";
+    private WorkItem? createdWorkItem;
+    
+    // Update work item
+    private int? updateWorkItemId;
+    private string updateState = "";
+    private string updateAssignee = "";
+    private string updateComment = "";
+    private WorkItem? updatedWorkItem;
+
+    private async Task TestConnection()
+    {
+        if (string.IsNullOrWhiteSpace(organizationUrl) || string.IsNullOrWhiteSpace(personalAccessToken))
+        {
+            errorMessage = "Please provide both Organization URL and Personal Access Token";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = "";
+        connectionStatus = null;
+        
+        try
+        {
+            connectionStatus = await TaskService.TestConnectionAsync(organizationUrl, personalAccessToken);
+            
+            if (connectionStatus.IsSuccess)
+            {
+                await GetWorkItemTypes();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+            connectionStatus = new AdoConnectionResult 
+            { 
+                IsSuccess = false, 
+                Message = $"Connection failed: {ex.Message}" 
+            };
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task GetWorkItemTypes()
+    {
+        try
+        {
+            workItemTypes = await TaskService.GetWorkItemTypesAsync(projectName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get work item types: {ex.Message}";
+        }
+    }
+
+    private async Task GetMyWorkItems()
+    {
+        isLoadingWorkItems = true;
+        errorMessage = "";
+        workItems.Clear();
+        
+        try
+        {
+            workItems = await TaskService.GetMyWorkItemsAsync(projectName);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get my work items: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWorkItems = false;
+        }
+    }
+
+    private async Task GetRecentWorkItems()
+    {
+        isLoadingWorkItems = true;
+        errorMessage = "";
+        workItems.Clear();
+        
+        try
+        {
+            workItems = await TaskService.GetRecentWorkItemsAsync(projectName, 50);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get recent work items: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWorkItems = false;
+        }
+    }
+
+    private async Task GetWorkItemsByState()
+    {
+        if (string.IsNullOrEmpty(selectedState)) return;
+        
+        isLoadingWorkItems = true;
+        errorMessage = "";
+        workItems.Clear();
+        
+        try
+        {
+            workItems = await TaskService.GetWorkItemsByStateAsync(projectName, selectedState);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get work items by state: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWorkItems = false;
+        }
+    }
+
+    private async Task GetWorkItemsByAssignee()
+    {
+        if (string.IsNullOrEmpty(selectedAssignee)) return;
+        
+        isLoadingWorkItems = true;
+        errorMessage = "";
+        workItems.Clear();
+        
+        try
+        {
+            workItems = await TaskService.GetWorkItemsByAssigneeAsync(projectName, selectedAssignee);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get work items by assignee: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingWorkItems = false;
+        }
+    }
+
+    private async Task ViewWorkItemDetails(int workItemId)
+    {
+        specificWorkItemId = workItemId;
+        await GetWorkItemDetails();
+    }
+
+    private async Task GetWorkItemDetails()
+    {
+        if (!specificWorkItemId.HasValue) return;
+        
+        isLoadingDetails = true;
+        errorMessage = "";
+        selectedWorkItem = null;
+        workItemUpdates.Clear();
+        
+        try
+        {
+            selectedWorkItem = await TaskService.GetWorkItemAsync(specificWorkItemId.Value);
+            workItemUpdates = await TaskService.GetWorkItemUpdatesAsync(specificWorkItemId.Value);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get work item details: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDetails = false;
+        }
+    }
+
+    private async Task GetWorkItemComments()
+    {
+        if (!specificWorkItemId.HasValue) return;
+        
+        try
+        {
+            workItemComments = await TaskService.GetWorkItemCommentsAsync(specificWorkItemId.Value);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to get work item comments: {ex.Message}";
+        }
+    }
+
+    private async Task CreateWorkItem()
+    {
+        if (string.IsNullOrEmpty(newWorkItemType) || string.IsNullOrEmpty(newWorkItemTitle)) return;
+        
+        isCreatingWorkItem = true;
+        errorMessage = "";
+        createdWorkItem = null;
+        
+        try
+        {
+            var fields = new Dictionary<string, object>
+            {
+                ["System.Title"] = newWorkItemTitle,
+                ["Microsoft.VSTS.Common.Priority"] = int.Parse(newWorkItemPriority)
+            };
+
+            if (!string.IsNullOrEmpty(newWorkItemDescription))
+                fields["System.Description"] = newWorkItemDescription;
+                
+            if (!string.IsNullOrEmpty(newWorkItemAssignee))
+                fields["System.AssignedTo"] = newWorkItemAssignee;
+
+            createdWorkItem = await TaskService.CreateWorkItemAsync(projectName, newWorkItemType, fields);
+            
+            // Clear form
+            newWorkItemTitle = "";
+            newWorkItemDescription = "";
+            newWorkItemAssignee = "";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create work item: {ex.Message}";
+        }
+        finally
+        {
+            isCreatingWorkItem = false;
+        }
+    }
+
+    private async Task UpdateWorkItem()
+    {
+        if (!updateWorkItemId.HasValue) return;
+        
+        isUpdatingWorkItem = true;
+        errorMessage = "";
+        updatedWorkItem = null;
+        
+        try
+        {
+            var fields = new Dictionary<string, object>();
+
+            if (!string.IsNullOrEmpty(updateState))
+                fields["System.State"] = updateState;
+                
+            if (!string.IsNullOrEmpty(updateAssignee))
+                fields["System.AssignedTo"] = updateAssignee;
+
+            if (!string.IsNullOrEmpty(updateComment))
+                fields["System.History"] = updateComment;
+
+            if (fields.Any())
+            {
+                updatedWorkItem = await TaskService.UpdateWorkItemAsync(updateWorkItemId.Value, fields);
+                
+                // Clear form
+                updateWorkItemId = null;
+                updateState = "";
+                updateAssignee = "";
+                updateComment = "";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update work item: {ex.Message}";
+        }
+        finally
+        {
+            isUpdatingWorkItem = false;
+        }
+    }
+
+    // Helper methods for display
+    private string GetWorkItemTypeBadgeClass(string? type) => type switch
+    {
+        "Task" => "bg-primary",
+        "Bug" => "bg-danger",
+        "User Story" => "bg-success",
+        "Feature" => "bg-info",
+        "Epic" => "bg-dark",
+        _ => "bg-secondary"
+    };
+
+    private string GetStateBadgeClass(string? state) => state switch
+    {
+        "New" => "bg-info",
+        "Active" or "In Progress" => "bg-warning text-dark",
+        "Resolved" => "bg-success",
+        "Closed" or "Done" => "bg-secondary",
+        _ => "bg-light text-dark"
+    };
+
+    private string GetAssignedTo(IDictionary<string, object> fields)
+    {
+        if (fields.ContainsKey("System.AssignedTo") && fields["System.AssignedTo"] != null)
+        {
+            var assignedTo = fields["System.AssignedTo"].ToString();
+            // Extract display name from the format "Display Name <email@domain.com>"
+            if (assignedTo?.Contains('<') == true)
+            {
+                return assignedTo.Substring(0, assignedTo.IndexOf('<')).Trim();
+            }
+            return assignedTo ?? "Unassigned";
+        }
+        return "Unassigned";
+    }
+
+    private string GetCreatedDate(IDictionary<string, object> fields)
+    {
+        if (fields.ContainsKey("System.CreatedDate") && DateTime.TryParse(fields["System.CreatedDate"]?.ToString(), out var date))
+        {
+            return date.ToString("yyyy-MM-dd HH:mm");
+        }
+        return "N/A";
+    }
+
+    private string GetChangedDate(IDictionary<string, object> fields)
+    {
+        if (fields.ContainsKey("System.ChangedDate") && DateTime.TryParse(fields["System.ChangedDate"]?.ToString(), out var date))
+        {
+            return date.ToString("yyyy-MM-dd HH:mm");
+        }
+        return "N/A";
+    }
+
+    private string GetTruncatedText(string? text, int maxLength)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= maxLength ? text : text.Substring(0, maxLength) + "...";
+    }
+
+    private string GetFieldDisplayName(string fieldName) => fieldName switch
+    {
+        "System.State" => "State",
+        "System.AssignedTo" => "Assigned To",
+        "System.Title" => "Title",
+        "System.Description" => "Description",
+        "Microsoft.VSTS.Common.Priority" => "Priority",
+        "System.IterationPath" => "Iteration",
+        "System.AreaPath" => "Area",
+        _ => fieldName.Replace("System.", "").Replace("Microsoft.VSTS.Common.", "")
+    };
+}
