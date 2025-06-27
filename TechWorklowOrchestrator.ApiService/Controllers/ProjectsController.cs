@@ -7,55 +7,21 @@ using TechWorklowOrchestrator.Core.Workflow;
 namespace TechWorklowOrchestrator.ApiService.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/config-projects")]
     public class ProjectsController : ControllerBase
     {
-        private readonly IProjectService _projectService;
+        private readonly IGenericProjectService<ConfigCleanupContext> _projectService;
 
-        public ProjectsController(IProjectService projectService)
+        public ProjectsController(IGenericProjectService<ConfigCleanupContext> projectService)
         {
             _projectService = projectService;
         }
 
-        [HttpGet]
-        public ActionResult<List<Project>> GetAllProjects()
-        {
-            var projects = _projectService.GetAllProjects();
-            return Ok(projects);
-        }
-
-        [HttpGet("{id}")]
-        public ActionResult<Project> GetProject(Guid id)
-        {
-            var project = _projectService.GetProjectById(id);
-            if (project == null)
-                return NotFound();
-            return Ok(project);
-        }
-
-        [HttpGet("service/{serviceName}")]
-        public ActionResult<List<Project>> GetProjectsByService(ServiceName serviceName)
-        {
-            var projects = _projectService.GetProjectsByService(serviceName);
-            return Ok(projects);
-        }
-
         [HttpPost]
-        public ActionResult<Project> CreateProject([FromBody] CreateProjectRequest request)
+        public ActionResult<GenericProject<ConfigCleanupContext>> CreateProject([FromBody] CreateProjectRequest request)
         {
             var project = _projectService.CreateProject(request.Name, request.ServiceName, request.Description);
-            return CreatedAtAction(nameof(GetProject), new { id = project.Id }, project);
-        }
-
-        [HttpGet("{projectId}/workflows")]
-        public ActionResult<List<ConfigCleanupContext>> GetWorkflowsByProject(Guid projectId)
-        {
-            var project = _projectService.GetProjectById(projectId);
-            if (project == null)
-                return NotFound($"Project with ID {projectId} not found");
-
-            var workflows = _projectService.GetWorkflowsByProject(projectId);
-            return Ok(workflows);
+            return Ok(project);
         }
 
         [HttpPost("{projectId}/workflows")]
@@ -63,10 +29,9 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
         {
             try
             {
-                // Create the basic workflow context
                 var workflow = _projectService.CreateWorkflow(projectId, request.ConfigurationName, request.WorkflowType);
 
-                // If it's an ArchiveOnly workflow and has stage configuration, parse and initialize it
+                // ArchiveOnly workflow stage config logic (if needed)
                 if (request.WorkflowType == WorkflowType.ArchiveOnly &&
                     request.Metadata != null &&
                     request.Metadata.ContainsKey("archiveStages"))
@@ -78,43 +43,28 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
 
                         if (stageModels?.Any() == true)
                         {
-                            // Convert from UI models to workflow models
                             var stageDefinitions = stageModels.Select(s => (
                                 stageName: s.Name,
                                 currentPercentage: s.CurrentPercentage,
                                 targetPercentage: s.TargetPercentage,
-                                // waitDuration: (TimeSpan?)TimeSpan.FromHours(s.WaitHours)
-                                waitDuration: (TimeSpan?)TimeSpan.FromMinutes(1) // Default to 1 minute for simplicity, can be adjusted
+                                waitDuration: (TimeSpan?)TimeSpan.FromMinutes(1)
                             )).ToList();
 
-                            // Initialize the archive configuration
                             workflow.InitializeArchiveConfiguration(stageDefinitions);
-
-                            Console.WriteLine($"Initialized archive workflow with {stageModels.Count} stages");
                         }
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Error parsing stage configuration: {ex.Message}");
-                        // Continue with default configuration - the workflow will create its own
                     }
                 }
 
-                return CreatedAtAction(nameof(GetWorkflow), new { projectId, workflowId = workflow.Id }, workflow);
+                return Ok(workflow);
             }
             catch (ArgumentException ex)
             {
                 return NotFound(ex.Message);
             }
-        }
-
-        [HttpGet("{projectId}/workflows/{workflowId}")]
-        public ActionResult<ConfigCleanupContext> GetWorkflow(Guid projectId, Guid workflowId)
-        {
-            var workflow = _projectService.GetWorkflowById(workflowId);
-            if (workflow == null || workflow.ProjectId != projectId)
-                return NotFound();
-            return Ok(workflow);
         }
 
         [HttpPut("{projectId}/workflows/{workflowId}")]
@@ -162,7 +112,7 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
         }
 
         [HttpGet("workflows/{workflowId}")]
-        public ActionResult<object> GetWorkflowById(Guid workflowId)
+        public ActionResult<ConfigCleanupContext> GetWorkflowById(Guid workflowId)
         {
             var workflow = _projectService.GetWorkflowById(workflowId);
             if (workflow == null)
@@ -271,32 +221,6 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
             };
 
             return Ok(response);
-        }
-
-        [HttpGet("workflows/summary")]
-        public ActionResult<object> GetProjectWorkflowsSummary()
-        {
-            var allWorkflows = _projectService.GetAllWorkflows();
-
-            var summary = new
-            {
-                TotalWorkflows = allWorkflows.Count,
-                ActiveWorkflows = allWorkflows.Count(w => {
-                    var state = DeriveCurrentState(w);
-                    return state == "InProgress" || state == "Waiting" || state == "AwaitingUserAction";
-                }),
-                CompletedWorkflows = allWorkflows.Count(w => w.IsCompleted),
-                FailedWorkflows = allWorkflows.Count(w => !string.IsNullOrEmpty(w.ErrorMessage)),
-                AwaitingManualAction = allWorkflows.Count(w => DeriveCurrentState(w) == "AwaitingUserAction"), // Fixed calculation
-                ByType = allWorkflows
-                    .GroupBy(w => w.WorkflowType)
-                    .ToDictionary(g => g.Key, g => g.Count()),
-                ByState = allWorkflows
-                    .GroupBy(w => DeriveCurrentState(w)) // Use DeriveCurrentState instead of simple mapping
-                    .ToDictionary(g => g.Key, g => g.Count())
-            };
-
-            return Ok(summary);
         }
 
         [HttpPost("workflows/{workflowId}/start")]

@@ -1,5 +1,6 @@
 ﻿@page "/workflows/create"
 @page "/projects/{projectId:guid}/workflows/create"
+@using System.ComponentModel.DataAnnotations
 @rendermode InteractiveServer
 @inject IWorkflowApiService WorkflowApi
 @inject IProjectApiService ProjectApi
@@ -22,44 +23,75 @@
                     </h4>
                 </div>
                 <div class="card-body">
-                    <EditForm Model="@model" OnValidSubmit="@HandleValidSubmit">
+                    <EditForm EditContext="@editContext" OnValidSubmit="@HandleValidSubmit" FormName="CreateWorkflowForm">
                         <DataAnnotationsValidator />
-
                         <!-- Project Selection (only show if not coming from project page) -->
                         @if (ProjectId == null)
                         {
-                            <div class="mb-3">
-                                <label for="projectSelect" class="form-label">Project (Optional)</label>
-                                <select id="projectSelect" class="form-select" @bind="selectedProjectId">
-                                    <option value="">No Project (Standalone Workflow)</option>
-                                    @if (projects != null)
-                                    {
+                            @if (projects == null)
+                            {
+                                <p><em>Loading projects...</em></p>
+                            }
+                            else
+                            {
+                                <div class="mb-3">
+                                    <label for="projectSelect" class="form-label">Project</label>
+                                    <select id="projectSelect" class="form-select"
+                                            @bind="selectedProjectId"
+                                            @bind:event="onchange"
+                                            @bind:after="OnProjectChanged">
+                                        <option value="">No Project (Standalone Workflow)</option>
                                         @foreach (var project in projects)
                                         {
                                             <option value="@project.Id">@project.Name (@project.ServiceName)</option>
                                         }
-                                    }
-                                </select>
-                                <div class="form-text">Optionally assign this workflow to a project for better organization</div>
-                            </div>
+                                    </select>
+                                </div>
+                            }
+
                         }
 
+                        <!-- Workflow Type selection moved before Title/Config Name -->
                         <div class="mb-3">
-                            <label for="configName" class="form-label">Configuration Name *</label>
-                            <InputText id="configName" class="form-control" @bind-Value="model.ConfigurationName"
-                                       placeholder="e.g., legacy-feature-flag" />
+                            <label for="workflowType" class="form-label">Workflow Type</label>
+                            <select id="workflowType" class="form-select" @onchange="OnWorkflowTypeChanged">
+                                @foreach (var type in GetFilteredWorkflowTypes())
+                                {
+                                    <option value="@type.ToString()" selected="@(model.WorkflowType == type)">
+                                        @type.ToString()
+                                    </option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="titleInput" class="form-label">Title</label>
+                            <InputText id="titleInput"
+                                        class="form-control"
+                                        @bind-Value="model.ConfigurationName" />
                             <ValidationMessage For="@(() => model.ConfigurationName)" />
                         </div>
 
-                        <div class="mb-3">
-                            <label for="workflowType" class="form-label">Workflow Type *</label>
-                            <InputSelect id="workflowType" class="form-select" @bind-Value="model.WorkflowType">
-                                <option value="@WorkflowType.ArchiveOnly">Archive Only - Gradual traffic reduction</option>
-                                <option value="@WorkflowType.CodeFirst">Code First - Remove from code then archive</option>
-                                <option value="@WorkflowType.TransformToDefault">Transform to Default - Single action</option>
-                            </InputSelect>
-                            <ValidationMessage For="@(() => model.WorkflowType)" />
-                        </div>
+                        @if (model.WorkflowType == WorkflowType.CodeUpdate)
+                        {
+                            <div class="mb-4">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">
+                                            <i class="bi bi-list-task"></i> Code Update Stages
+                                        </h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <ul class="list-group">
+                                            @foreach (var stage in codeUpdateModel.Stages)
+                                            {
+                                                <li class="list-group-item">@stage.Name</li>
+                                            }
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        }
 
                         @if (model.WorkflowType == WorkflowType.ArchiveOnly)
                         {
@@ -183,7 +215,6 @@
                             </div>
                         }
 
-
                         <div class="mb-3">
                             <label for="description" class="form-label">Description</label>
                             <InputTextArea id="description" class="form-control" @bind-Value="model.Description"
@@ -254,12 +285,70 @@
     private List<ArchiveStageModel> archiveStages = new();
 
     private CreateWorkflowRequest model = new();
+    private CodeUpdateWorkflowRequest codeUpdateModel = new();
     private List<MetadataItem> metadataItems = new() { new MetadataItem() };
     private bool isSubmitting = false;
+    private bool showValidationMessages = false;
+    private ValidationMessageStore messageStore;
+
 
     private List<ProjectResponse>? projects;
     private ProjectResponse? selectedProject;
-    private string selectedProjectId = "";
+    private string selectedProjectIdBacking = "";
+    private string selectedProjectId
+    {
+        get => selectedProjectIdBacking;
+        set
+        {
+            if (selectedProjectIdBacking != value)
+            {
+                selectedProjectIdBacking = value;
+                // Find the selected project by matching the string value to the Guid
+                if (Guid.TryParse(selectedProjectIdBacking, out var selectedGuid))
+                {
+                    selectedProject = projects?.FirstOrDefault(p => p.Id == selectedGuid);
+                    selectedProjectType = selectedProject?.Type;
+                }
+                else
+                {
+                    selectedProject = null;
+                    selectedProjectType = null;
+                }
+                // Any other logic you want to run on change
+            }
+        }
+    }
+
+    private void OnNameChanged(string newValue)
+    {
+        if (model.WorkflowType == WorkflowType.CodeUpdate)
+        {
+            codeUpdateModel.Title = newValue;
+        }
+        else
+        {
+            model.ConfigurationName = newValue;
+        }
+    }
+
+
+    private EditContext editContext;
+
+    protected override void OnInitialized()
+    {
+        editContext = new EditContext(model);
+        messageStore = new ValidationMessageStore(editContext);
+    }
+
+
+
+    private readonly List<string> codeUpdateStages = new()
+    {
+        "PR In Progress",
+        "PR Review",
+        "Deployment InProgress",
+        "Deployment Done"
+    };
 
     public class MetadataItem
     {
@@ -267,9 +356,10 @@
         public string Value { get; set; } = "";
     }
 
+    private ProjectType? selectedProjectType;
+
     protected override async Task OnInitializedAsync()
     {
-        // Load projects for dropdown (only if not coming from specific project)
         if (ProjectId == null)
         {
             try
@@ -284,11 +374,16 @@
         }
         else
         {
-            // Load the specific project info
             try
             {
                 selectedProject = await ProjectApi.GetProjectAsync(ProjectId.Value);
                 model.ProjectId = ProjectId.Value;
+
+                // Set selectedProjectType from selectedProject if available
+                if (selectedProject != null)
+                {
+                    selectedProjectType = selectedProject.Type;
+                }
             }
             catch (Exception ex)
             {
@@ -297,6 +392,103 @@
         }
 
         InitializeArchiveStages();
+        InitializeCodeUpdateModel();
+    }
+
+    private void OnProjectChanged()
+    {
+         _ = InvokeAsync(async () =>
+        {   
+           selectedProjectId = selectedProjectId?.Trim();
+            if (Guid.TryParse(selectedProjectId, out var selectedGuid))
+            {
+                selectedProject = projects?.FirstOrDefault(p => p.Id == selectedGuid);
+                selectedProjectType = selectedProject?.Type;
+            }
+            else
+            {
+                selectedProject = null;
+                selectedProjectType = null;
+            }
+
+            // Optionally reset workflow type to default for this project type
+            model.WorkflowType = GetDefaultWorkflowTypeForProject(selectedProjectType);
+
+            // Re-initialize stages and fields
+            InitializeFieldsForWorkflowType();
+            await InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private void OnWorkflowTypeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<WorkflowType>(e.Value?.ToString(), out var selectedType))
+        {
+            model.WorkflowType = selectedType;
+
+            messageStore.Clear();
+            messageStore.Clear(FieldIdentifier.Create(() => model.ConfigurationName));
+            messageStore.Clear(FieldIdentifier.Create(() => codeUpdateModel.Title));
+            editContext.NotifyValidationStateChanged();
+            StateHasChanged();
+        }
+    }
+
+    private IEnumerable<WorkflowType> GetFilteredWorkflowTypes()
+    {
+        if (selectedProjectType == ProjectType.CodeUpdate)
+        {
+            yield return WorkflowType.CodeUpdate;
+        }
+        else if (selectedProjectType == ProjectType.ConfigCleanup)
+        {
+            // Return all except CodeUpdate
+            foreach (var type in Enum.GetValues(typeof(WorkflowType)).Cast<WorkflowType>())
+            {
+                if (type != WorkflowType.CodeUpdate)
+                    yield return type;
+            }
+        }
+        else
+        {
+            // Unknown or standalone — return all
+            foreach (var type in Enum.GetValues(typeof(WorkflowType)).Cast<WorkflowType>())
+            {
+                yield return type;
+            }
+        }
+    }
+
+
+    private void InitializeFieldsForWorkflowType()
+    {
+        if (model.WorkflowType == WorkflowType.CodeUpdate)
+        {
+            InitializeCodeUpdateModel();
+        }
+        else if (model.WorkflowType == WorkflowType.ArchiveOnly)
+        {
+            archiveStages.Clear();
+            InitializeArchiveStages();
+        }
+        // Optionally clear fields for other types
+    }
+
+    private WorkflowType GetDefaultWorkflowTypeForProject(ProjectType? projectType)
+    {
+        return projectType switch
+        {
+            ProjectType.CodeUpdate => WorkflowType.CodeUpdate,
+            ProjectType.ConfigCleanup => WorkflowType.ArchiveOnly,
+            _ => WorkflowType.ArchiveOnly
+        };
+    }
+
+    private void InitializeCodeUpdateModel()
+    {
+        codeUpdateModel.Stages = codeUpdateStages
+            .Select(stage => new CodeUpdateStageModel { Name = stage })
+            .ToList();
     }
 
     private void InitializeArchiveStages()
@@ -334,7 +526,7 @@
 
     private void MoveStageUp(int index)
     {
-        if (index > 0)
+        if( index > 0)
         {
             var stage = archiveStages[index];
             archiveStages.RemoveAt(index);
@@ -399,8 +591,33 @@
         isSubmitting = true;
         try
         {
+            if (model.WorkflowType == WorkflowType.CodeUpdate)
+            {
+                // Convert metadata items to dictionary
+                codeUpdateModel.Metadata = metadataItems
+                    .Where(m => !string.IsNullOrWhiteSpace(m.Key))
+                    .ToDictionary(m => m.Key.Trim(), m => m.Value?.Trim() ?? "");
+
+                // Set project ID if selected from dropdown
+                if (ProjectId == null && !string.IsNullOrEmpty(selectedProjectId) && Guid.TryParse(selectedProjectId, out var codeUpdateProjectGuid))
+                {
+                    codeUpdateModel.ProjectId = codeUpdateProjectGuid;
+                }
+                else
+                {
+                    codeUpdateModel.ProjectId = model.ProjectId;
+                }
+
+                codeUpdateModel.Title = model.ConfigurationName;
+                // Use the correct API method for CodeUpdateWorkflowRequest
+                var codeUpdateWorkflow = await WorkflowApi.CreateCodeUpdateWorkflowAsync(codeUpdateModel);
+
+                Navigation.NavigateTo($"/workflows/{codeUpdateWorkflow.Id}");
+                return;
+            }
+
             // Convert metadata items to dictionary
-             model.Metadata = metadataItems
+            model.Metadata = metadataItems
                 .Where(m => !string.IsNullOrWhiteSpace(m.Key))
                 .ToDictionary(m => m.Key.Trim(), m => m.Value?.Trim() ?? "");
 
@@ -452,8 +669,6 @@
             Navigation.NavigateTo("/");
         }
     }
-
-
 
     public class ArchiveStageModel
     {

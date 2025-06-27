@@ -3,10 +3,9 @@ using TechWorklowOrchestrator.Core.Workflow;
 
 namespace TechWorklowOrchestrator.ApiService.Dto
 {
-    public class CreateWorkflowRequest
+    public class CreateWorkflowRequest : IValidatableObject
     {
-        [Required]
-        public string ConfigurationName { get; set; }
+        public string? ConfigurationName { get; set; }
 
         [Required]
         public WorkflowType WorkflowType { get; set; }
@@ -18,5 +17,27 @@ namespace TechWorklowOrchestrator.ApiService.Dto
         public string Description { get; set; }
 
         public Dictionary<string, string>? Metadata { get; set; } = new();
+
+        public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+        {
+            Console.WriteLine($"[DEBUG] WorkflowType: {WorkflowType}");
+            Console.WriteLine($"[DEBUG] ConfigurationName: '{ConfigurationName}'");
+
+            if (WorkflowType != WorkflowType.CodeUpdate)
+            {
+                if (string.IsNullOrWhiteSpace(ConfigurationName))
+                {
+                    yield return new ValidationResult(
+                        "The ConfigurationName field is required.",
+                        new[] { nameof(ConfigurationName) });
+                }
+                else if (ConfigurationName.Length < 3 || ConfigurationName.Length > 100)
+                {
+                    yield return new ValidationResult(
+                        "ConfigurationName must be between 3 and 100 characters.",
+                        new[] { nameof(ConfigurationName) });
+                }
+            }
+        }
     }
 }

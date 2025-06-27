@@ -4,6 +4,7 @@
     {
         ArchiveOnly,
         CodeFirst,
-        TransformToDefault
+        TransformToDefault,
+        CodeUpdate
     }
 }

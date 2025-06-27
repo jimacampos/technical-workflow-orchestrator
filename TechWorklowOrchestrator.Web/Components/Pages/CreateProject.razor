@@ -40,6 +40,19 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="projectType" class="form-label">Project Type *</label>
+                            <InputSelect id="projectType" class="form-select" @bind-Value="model.ProjectType">
+                                <option value="">Select a project type...</option>
+                                @foreach (var type in Enum.GetValues<ProjectType>())
+                                {
+                                    <option value="@type">@type</option>
+                                }
+                            </InputSelect>
+                            <div class="form-text">What type of project is this?</div>
+                            <ValidationMessage For="@(() => model.ProjectType)" />
+                        </div>
+
+                        <div class="mb-3">
                             <label for="description" class="form-label">Description</label>
                             <InputTextArea id="description" class="form-control" @bind-Value="model.Description"
                                            rows="4" placeholder="Describe the purpose and scope of this project..." />

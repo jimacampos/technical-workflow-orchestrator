@@ -2,20 +2,27 @@
 {
     public enum WorkflowState
     {
+        // Common states
         Created,
         InProgress,
         Waiting,
         Completed,
         Failed,
+        AwaitingUserAction,
+
+        // Archive-Only specific
         ReducingTo80Percent,
         WaitingAfter80Percent,
         ReducingToZero,
         Archiving,
+
+        // Code-First specific
         CreatingPR,
         AwaitingReview,
         Merged,
         WaitingForDeployment,
-        Transforming,
-        AwaitingUserAction
+
+        // Transform-to-Default specific
+        Transforming
     }
 }

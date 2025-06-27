@@ -1,52 +1,27 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using TechWorklowOrchestrator.ApiService.Dto;
 using TechWorklowOrchestrator.ApiService.Service;
+using TechWorklowOrchestrator.Core;
+using TechWorklowOrchestrator.Core.Workflow;
+using TechWorklowOrchestrator.Web.Models;
+using CreateWorkflowRequest = TechWorklowOrchestrator.ApiService.Dto.CreateWorkflowRequest;
+using ExternalEventRequest = TechWorklowOrchestrator.ApiService.Dto.ExternalEventRequest;
+using WorkflowResponse = TechWorklowOrchestrator.ApiService.Dto.WorkflowResponse;
 
 namespace TechWorklowOrchestrator.ApiService.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/config-workflows")]
     public class WorkflowsController : ControllerBase
     {
-        private readonly IWorkflowService _workflowService;
+        private readonly IGenericWorkflowService<CreateWorkflowRequest, ConfigCleanupContext> _workflowService;
 
-        public WorkflowsController(IWorkflowService workflowService)
+        public WorkflowsController(IGenericWorkflowService<CreateWorkflowRequest, ConfigCleanupContext> workflowService)
         {
             _workflowService = workflowService;
         }
 
-        /// <summary>
-        /// Get summary of all workflows
-        /// </summary>
-        [HttpGet("summary")]
-        public async Task<ActionResult<WorkflowSummary>> GetSummary()
-        {
-            var summary = await _workflowService.GetSummaryAsync();
-            return Ok(summary);
-        }
-
-        /// <summary>
-        /// Get all workflows
-        /// </summary>
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<WorkflowResponse>>> GetAllWorkflows()
-        {
-            var workflows = await _workflowService.GetAllWorkflowsAsync();
-            return Ok(workflows);
-        }
-
-        /// <summary>
-        /// Get a specific workflow by ID
-        /// </summary>
-        [HttpGet("{id:guid}")]
-        public async Task<ActionResult<WorkflowResponse>> GetWorkflow(Guid id)
-        {
-            var workflow = await _workflowService.GetWorkflowAsync(id);
-            if (workflow == null)
-                return NotFound($"Workflow {id} not found");
-
-            return Ok(workflow);
-        }
+        // Only POST, DELETE, and workflow actions remain
 
         /// <summary>
         /// Create a new workflow
@@ -56,8 +31,7 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
         {
             var id = await _workflowService.CreateWorkflowAsync(request);
             var workflow = await _workflowService.GetWorkflowAsync(id);
-
-            return CreatedAtAction(nameof(GetWorkflow), new { id }, workflow);
+            return Ok(workflow); // No redirect to AllWorkflowsController
         }
 
         /// <summary>
@@ -123,7 +97,6 @@ namespace TechWorklowOrchestrator.ApiService.Controllers
                 if (workflow == null)
                     return NotFound($"Workflow {id} not found");
 
-                // This would need to be implemented in the workflow service
                 var updatedWorkflow = await _workflowService.ProceedWorkflowAsync(id);
                 return Ok(updatedWorkflow);
             }

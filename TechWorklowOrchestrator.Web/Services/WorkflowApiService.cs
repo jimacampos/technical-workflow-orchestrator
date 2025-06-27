@@ -22,79 +22,18 @@ namespace TechWorklowOrchestrator.Web.Services
 
         public async Task<WorkflowSummary> GetSummaryAsync()
         {
-            var combinedSummary = new WorkflowSummary();
-
             try
             {
-                // Get standalone workflow summary
-                var response = await _httpClient.GetAsync("api/workflows/summary");
-                if (response.IsSuccessStatusCode)
-                {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var standaloneSummary = JsonSerializer.Deserialize<WorkflowSummary>(json, _jsonOptions);
-                    if (standaloneSummary != null)
-                    {
-                        combinedSummary.TotalWorkflows += standaloneSummary.TotalWorkflows;
-                        combinedSummary.ActiveWorkflows += standaloneSummary.ActiveWorkflows;
-                        combinedSummary.CompletedWorkflows += standaloneSummary.CompletedWorkflows;
-                        combinedSummary.FailedWorkflows += standaloneSummary.FailedWorkflows;
-                        combinedSummary.AwaitingManualAction += standaloneSummary.AwaitingManualAction;
-
-                        // Combine ByType dictionaries
-                        foreach (var kvp in standaloneSummary.ByType)
-                        {
-                            combinedSummary.ByType[kvp.Key] = combinedSummary.ByType.GetValueOrDefault(kvp.Key) + kvp.Value;
-                        }
-
-                        // Combine ByState dictionaries
-                        foreach (var kvp in standaloneSummary.ByState)
-                        {
-                            combinedSummary.ByState[kvp.Key] = combinedSummary.ByState.GetValueOrDefault(kvp.Key) + kvp.Value;
-                        }
-                    }
-                }
+                var response = await _httpClient.GetAsync("api/all-workflows/summary");
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync();
+                return JsonSerializer.Deserialize<WorkflowSummary>(json, _jsonOptions) ?? new WorkflowSummary();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading standalone workflow summary: {ex.Message}");
+                Console.WriteLine($"Error loading workflow summary: {ex.Message}");
+                return new WorkflowSummary();
             }
-
-            try
-            {
-                // Get project workflow summary
-                var projectResponse = await _httpClient.GetAsync("api/projects/workflows/summary");
-                if (projectResponse.IsSuccessStatusCode)
-                {
-                    var projectJson = await projectResponse.Content.ReadAsStringAsync();
-                    var projectSummary = JsonSerializer.Deserialize<WorkflowSummary>(projectJson, _jsonOptions);
-                    if (projectSummary != null)
-                    {
-                        combinedSummary.TotalWorkflows += projectSummary.TotalWorkflows;
-                        combinedSummary.ActiveWorkflows += projectSummary.ActiveWorkflows;
-                        combinedSummary.CompletedWorkflows += projectSummary.CompletedWorkflows;
-                        combinedSummary.FailedWorkflows += projectSummary.FailedWorkflows;
-                        combinedSummary.AwaitingManualAction += projectSummary.AwaitingManualAction;
-
-                        // Combine ByType dictionaries
-                        foreach (var kvp in projectSummary.ByType)
-                        {
-                            combinedSummary.ByType[kvp.Key] = combinedSummary.ByType.GetValueOrDefault(kvp.Key) + kvp.Value;
-                        }
-
-                        // Combine ByState dictionaries
-                        foreach (var kvp in projectSummary.ByState)
-                        {
-                            combinedSummary.ByState[kvp.Key] = combinedSummary.ByState.GetValueOrDefault(kvp.Key) + kvp.Value;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error loading project workflow summary: {ex.Message}");
-            }
-
-            return combinedSummary;
         }
 
         public async Task<List<WorkflowResponse>> GetAllWorkflowsAsync()
@@ -103,8 +42,7 @@ namespace TechWorklowOrchestrator.Web.Services
 
             try
             {
-                // Get standalone workflows from original endpoint
-                var response = await _httpClient.GetAsync("api/workflows");
+                var response = await _httpClient.GetAsync("api/all-workflows");
                 if (response.IsSuccessStatusCode)
                 {
                     var json = await response.Content.ReadAsStringAsync();
@@ -119,8 +57,7 @@ namespace TechWorklowOrchestrator.Web.Services
 
             try
             {
-                // Get project-based workflows from new endpoint
-                var projectResponse = await _httpClient.GetAsync("api/projects/workflows");
+                var projectResponse = await _httpClient.GetAsync("api/all-projects/workflows");
                 if (projectResponse.IsSuccessStatusCode)
                 {
                     var projectJson = await projectResponse.Content.ReadAsStringAsync();
@@ -138,8 +75,8 @@ namespace TechWorklowOrchestrator.Web.Services
 
         public async Task<WorkflowResponse?> GetWorkflowAsync(Guid id)
         {
-            // First try the project-based workflow endpoint (which has stage progress)
-            var projectResponse = await _httpClient.GetAsync($"api/projects/workflows/{id}");
+            // Try the project-based workflow endpoint first
+            var projectResponse = await _httpClient.GetAsync($"api/all-projects/workflows/{id}");
             if (projectResponse.IsSuccessStatusCode)
             {
                 var projectJson = await projectResponse.Content.ReadAsStringAsync();
@@ -150,15 +87,14 @@ namespace TechWorklowOrchestrator.Web.Services
                 }
             }
 
-            // If not found in projects, try the original workflow endpoint
-            var response = await _httpClient.GetAsync($"api/workflows/{id}");
+            // Fallback to the original workflow endpoint
+            var response = await _httpClient.GetAsync($"api/all-workflows/{id}");
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync();
                 return JsonSerializer.Deserialize<WorkflowResponse>(json, _jsonOptions);
             }
 
-            // Not found in either endpoint
             return null;
         }
 
@@ -166,7 +102,7 @@ namespace TechWorklowOrchestrator.Web.Services
         {
             var json = JsonSerializer.Serialize(request, _jsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync("api/workflows", content);
+            var response = await _httpClient.PostAsync("api/config-workflows", content);
             response.EnsureSuccessStatusCode();
             var responseJson = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<WorkflowResponse>(responseJson, _jsonOptions)!;
@@ -177,7 +113,7 @@ namespace TechWorklowOrchestrator.Web.Services
             // First try the project-based workflow start endpoint
             try
             {
-                var projectResponse = await _httpClient.PostAsync($"api/projects/workflows/{id}/start", null);
+                var projectResponse = await _httpClient.PostAsync($"api/config-projects/workflows/{id}/start", null);
                 if (projectResponse.IsSuccessStatusCode)
                 {
                     var projectJson = await projectResponse.Content.ReadAsStringAsync();
@@ -194,7 +130,7 @@ namespace TechWorklowOrchestrator.Web.Services
             }
 
             // If project endpoint fails, try the original workflow endpoint
-            var response = await _httpClient.PostAsync($"api/workflows/{id}/start", null);
+            var response = await _httpClient.PostAsync($"api/config-workflows/{id}/start", null);
             response.EnsureSuccessStatusCode();
             var json = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<WorkflowResponse>(json, _jsonOptions)!;
@@ -204,7 +140,7 @@ namespace TechWorklowOrchestrator.Web.Services
         {
             var json = JsonSerializer.Serialize(eventRequest, _jsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var response = await _httpClient.PostAsync($"api/workflows/{id}/events", content);
+            var response = await _httpClient.PostAsync($"api/config-workflows/{id}/events", content);
             response.EnsureSuccessStatusCode();
             var responseJson = await response.Content.ReadAsStringAsync();
             return JsonSerializer.Deserialize<WorkflowResponse>(responseJson, _jsonOptions)!;
@@ -212,7 +148,7 @@ namespace TechWorklowOrchestrator.Web.Services
 
         public async Task<bool> DeleteWorkflowAsync(Guid id)
         {
-            var response = await _httpClient.DeleteAsync($"api/workflows/{id}");
+            var response = await _httpClient.DeleteAsync($"api/config-workflows/{id}");
             return response.IsSuccessStatusCode;
         }
 
@@ -255,5 +191,14 @@ namespace TechWorklowOrchestrator.Web.Services
             return JsonSerializer.Deserialize<WorkflowResponse>(responseJson, _jsonOptions);
         }
 
+        public async Task<WorkflowResponse> CreateCodeUpdateWorkflowAsync(CodeUpdateWorkflowRequest request)
+        {
+            var json = JsonSerializer.Serialize(request, _jsonOptions);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync("api/codeupdate-workflows", content);
+            response.EnsureSuccessStatusCode();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonSerializer.Deserialize<WorkflowResponse>(responseJson, _jsonOptions)!;
+        }
     }
 }

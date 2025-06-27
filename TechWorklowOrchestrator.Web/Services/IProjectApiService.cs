@@ -11,5 +11,6 @@ namespace TechWorklowOrchestrator.Web.Services
 
         Task<List<WorkflowResponse>> GetWorkflowsByProjectAsync(Guid projectId);
         Task<WorkflowResponse> CreateWorkflowInProjectAsync(Guid projectId, CreateWorkflowRequest request);
+        Task<WorkflowResponse> CreateWorkflowInProjectAsync(Guid projectId, CodeUpdateWorkflowRequest request);
     }
 }

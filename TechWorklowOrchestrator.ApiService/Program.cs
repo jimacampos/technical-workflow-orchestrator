@@ -1,5 +1,8 @@
+using TechWorklowOrchestrator.ApiService.Dto;
 using TechWorklowOrchestrator.ApiService.Repository;
 using TechWorklowOrchestrator.ApiService.Service;
+using TechWorklowOrchestrator.Core;
+using TechWorklowOrchestrator.Core.Workflow;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,10 +19,19 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 }); 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddSingleton<IWorkflowService, WorkflowService>();
-builder.Services.AddSingleton<IWorkflowRepository, InMemoryWorkflowRepository>();
-builder.Services.AddSingleton<IProjectService, ProjectService>();
-builder.Services.AddSingleton<IProjectRepository, InMemoryProjectRepository>();
+
+builder.Services.AddSingleton<IGenericWorkflowRepository, InMemoryGenericWorkflowRepository>();
+builder.Services.AddSingleton(typeof(IGenericWorkflowService<,>), typeof(GenericWorkflowService<,>));
+
+// Register the generic project repository and service for ConfigCleanupContext
+builder.Services.AddSingleton<IGenericProjectRepository<ConfigCleanupContext>, InMemoryGenericProjectRepository<ConfigCleanupContext>>();
+builder.Services.AddSingleton<IGenericProjectService<ConfigCleanupContext>, GenericProjectService<ConfigCleanupContext>>();
+
+builder.Services.AddSingleton<IGenericProjectRepository<CodeUpdateContext>, InMemoryGenericProjectRepository<CodeUpdateContext>>();
+builder.Services.AddSingleton<IGenericProjectService<CodeUpdateContext>, GenericProjectService<CodeUpdateContext>>();
+
+builder.Services.AddSingleton<IWorkflowProvider<CreateWorkflowRequest, ConfigCleanupContext>, ConfigCleanupWorkflowProvider>();
+builder.Services.AddSingleton<IWorkflowProvider<CodeUpdateWorkflowRequest, CodeUpdateContext>, CodeUpdateWorkflowProvider>();
 
 var app = builder.Build();
 
